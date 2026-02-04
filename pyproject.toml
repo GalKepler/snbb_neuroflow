@@ -1,0 +1,45 @@
+[project]
+name = "neuroflow"
+version = "0.1.0"
+description = "Task orchestration for neuroimaging pipelines"
+requires-python = ">=3.10"
+dependencies = [
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "celery[redis]>=5.3",
+    "watchdog>=4.0",
+    "structlog>=24.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "pyyaml>=6.0",
+    "pydicom>=2.4",
+    "click>=8.1",
+    "rich>=13.0",
+    "python-dateutil>=2.8",
+    "gspread>=6.0",
+    "google-auth>=2.20",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+]
+postgres = ["psycopg2-binary>=2.9"]
+
+[project.scripts]
+neuroflow = "neuroflow.cli.main:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+strict = true

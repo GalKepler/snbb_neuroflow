@@ -1,0 +1,58 @@
+# Neuroflow Configuration Example
+# Copy to neuroflow.yaml and customize
+
+paths:
+  dicom_incoming: /mnt/62/Raw_Data
+  bids_root: /data/brainbank/bids
+  derivatives: /data/brainbank/derivatives
+  work_dir: /data/brainbank/.neuroflow
+  log_dir: /var/log/neuroflow
+
+database:
+  url: "sqlite:////data/brainbank/.neuroflow/neuroflow.db"
+
+redis:
+  url: "redis://localhost:6379/0"
+
+dataset:
+  name: "brainbank"
+  session_ids: ["baseline", "followup"]
+  dicom_participant_first: true
+
+protocol:
+  stability_wait_minutes: 180
+  bids_conversion_min_files: 10
+
+pipelines:
+  bids_conversion:
+    enabled: true
+    tool: "heudiconv"
+    version: "1.3.4"
+    timeout_minutes: 60
+    retries: 2
+
+  session_level:
+    - name: "mriqc"
+      enabled: true
+      runner: "voxelops.runners.mriqc"
+      container: "nipreps/mriqc:24.0.0"
+      timeout_minutes: 120
+      requirements:
+        bids_suffixes: ["T1w"]
+
+    - name: "freesurfer"
+      enabled: true
+      runner: "voxelops.runners.freesurfer"
+      container: "freesurfer/freesurfer:7.4.1"
+      timeout_minutes: 720
+      requirements:
+        bids_suffixes: ["T1w"]
+
+celery:
+  worker_concurrency: 2
+  task_soft_time_limit: 43200
+  task_time_limit: 86400
+
+logging:
+  level: INFO
+  format: console

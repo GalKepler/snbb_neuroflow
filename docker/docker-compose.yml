@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  neuroflow-worker:
+    build: ..
+    command: neuroflow run worker
+    depends_on:
+      - redis
+    environment:
+      - NEUROFLOW_REDIS__URL=redis://redis:6379/0
+    volumes:
+      - ../neuroflow.yaml:/app/neuroflow.yaml
+      - /data/brainbank:/data/brainbank
+
+  neuroflow-beat:
+    build: ..
+    command: neuroflow run beat
+    depends_on:
+      - redis
+    environment:
+      - NEUROFLOW_REDIS__URL=redis://redis:6379/0
+
+volumes:
+  redis-data:
