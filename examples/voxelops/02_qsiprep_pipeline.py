@@ -188,8 +188,11 @@ def batch_process_sessions(config_path: str, force: bool = False):
         print("Scanning for sessions with DWI data...")
         for session in all_sessions:
             if check_dwi_data(session, config.paths.bids_root):
+                # Extract data while in session context
+                subject_id = session.subject.participant_id
+                session_label = session.session_id
                 sessions_with_dwi.append(session.id)
-                print(f"  ✓ {session.subject.participant_id}/{session.session_id}")
+                print(f"  ✓ {subject_id}/{session_label}")
 
     if not sessions_with_dwi:
         print("\nNo sessions with DWI data found")

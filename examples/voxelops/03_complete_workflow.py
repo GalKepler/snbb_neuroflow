@@ -65,13 +65,14 @@ class WorkflowRunner:
         """
         self.start_time = datetime.now()
 
-        # Get session info
+        # Get session info - extract data within database context
         with self.state.get_session() as db:
             session = db.get(Session, session_id)
             if not session:
                 print(f"ERROR: Session {session_id} not found")
                 return False
 
+            # Extract all needed data within context to avoid DetachedInstanceError
             subject_id = session.subject_id
             participant_id = session.subject.participant_id
             session_label = session.session_id
@@ -234,8 +235,10 @@ class WorkflowRunner:
             success: Whether workflow succeeded
             duration: Total duration in seconds
         """
+        # Extract session data within database context
         with self.state.get_session() as db:
             session = db.get(Session, session_id)
+            # Access relationships within context to avoid DetachedInstanceError
             participant_id = session.subject.participant_id
             session_label = session.session_id
 

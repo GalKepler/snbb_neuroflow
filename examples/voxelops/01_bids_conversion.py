@@ -117,7 +117,8 @@ def convert_all_validated_sessions(config_path: str):
     config = NeuroflowConfig.from_yaml(config_path)
     state = StateManager(config)
 
-    # Query validated sessions
+    # Query validated sessions and extract IDs within context
+    session_data = []
     with state.get_session() as db:
         sessions = db.query(Session).filter(
             Session.status == SessionStatus.VALIDATED
@@ -129,12 +130,20 @@ def convert_all_validated_sessions(config_path: str):
             print("No validated sessions to process")
             return
 
-        # Confirm before batch processing
+        # Extract needed data while still in session context
         print("\nSessions to process:")
         for s in sessions:
-            print(f"  - {s.subject.participant_id} / {s.session_id}")
+            subject_id = s.subject.participant_id
+            session_id = s.session_id
+            db_id = s.id
+            print(f"  - {subject_id} / {session_id}")
+            session_data.append({
+                "id": db_id,
+                "subject_id": subject_id,
+                "session_id": session_id,
+            })
 
-        response = input(f"\nProcess all {len(sessions)} sessions? [y/N]: ")
+        response = input(f"\nProcess all {len(session_data)} sessions? [y/N]: ")
         if response.lower() != 'y':
             print("Cancelled")
             return
@@ -143,10 +152,10 @@ def convert_all_validated_sessions(config_path: str):
     adapter = VoxelopsAdapter(config)
     results = {"success": 0, "failed": 0, "skipped": 0}
 
-    for i, session in enumerate(sessions, 1):
-        print(f"\n[{i}/{len(sessions)}] Processing {session.subject.participant_id}/{session.session_id}")
+    for i, session_info in enumerate(session_data, 1):
+        print(f"\n[{i}/{len(session_data)}] Processing {session_info['subject_id']}/{session_info['session_id']}")
 
-        result = adapter.run("bids_conversion", session_id=session.id)
+        result = adapter.run("bids_conversion", session_id=session_info["id"])
 
         if result.success:
             if result.metrics and result.metrics.get("skipped"):
