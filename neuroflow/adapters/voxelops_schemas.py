@@ -14,8 +14,6 @@ import structlog
 
 from neuroflow.adapters.voxelops import PipelineResult
 from neuroflow.config import NeuroflowConfig, PipelineConfig
-from neuroflow.models.session import Session
-from neuroflow.models.subject import Subject
 
 log = structlog.get_logger("voxelops.schemas")
 
@@ -31,33 +29,18 @@ class BuilderContext:
     """Context for building VoxelOps schemas.
 
     Encapsulates all the information needed to construct VoxelOps Input
-    and Defaults schemas from neuroflow configuration and database models.
+    and Defaults schemas from neuroflow configuration.
+
+    Note: This holds plain data (strings, Paths), not SQLAlchemy ORM objects,
+    to avoid DetachedInstanceError when used outside database session context.
     """
 
     config: NeuroflowConfig
     pipeline_config: PipelineConfig
-    session: Session | None = None
-    subject: Subject | None = None
-
-    @property
-    def participant_id(self) -> str:
-        """Extract participant ID without 'sub-' prefix."""
-        if not self.subject:
-            raise ValueError("Subject is required but not provided")
-        participant = self.subject.participant_id
-        if participant.startswith("sub-"):
-            return participant[4:]
-        return participant
-
-    @property
-    def session_id(self) -> str | None:
-        """Extract session ID without 'ses-' prefix."""
-        if not self.session:
-            return None
-        session = self.session.session_id
-        if session.startswith("ses-"):
-            return session[4:]
-        return session
+    # Plain data fields instead of ORM objects
+    participant_id: str | None = None  # Without 'sub-' prefix
+    session_id: str | None = None  # Without 'ses-' prefix
+    dicom_path: Path | None = None
 
     @property
     def voxelops_config(self) -> dict:
@@ -134,8 +117,8 @@ class HeudiconvSchemaBuilder(SchemaBuilder):
         """Build HeudiconvInputs schema."""
         from voxelops.schemas.heudiconv import HeudiconvInputs
 
-        if not ctx.session:
-            raise ValueError("Session is required for HeudiConv")
+        if not ctx.dicom_path:
+            raise ValueError("DICOM path is required for HeudiConv")
 
         # Get heuristic from config or BidsConversionConfig
         heuristic = None
@@ -147,7 +130,7 @@ class HeudiconvSchemaBuilder(SchemaBuilder):
                 heuristic = Path(bids_cfg.heuristic_file)
 
         return HeudiconvInputs(
-            dicom_dir=Path(ctx.session.dicom_path),
+            dicom_dir=ctx.dicom_path,
             participant=ctx.participant_id,
             session=ctx.session_id,
             output_dir=ctx.config.paths.bids_root,
@@ -177,8 +160,8 @@ class QSIPrepSchemaBuilder(SchemaBuilder):
         """Build QSIPrepInputs schema."""
         from voxelops.schemas.qsiprep import QSIPrepInputs
 
-        if not ctx.subject:
-            raise ValueError("Subject is required for QSIPrep")
+        if not ctx.participant_id:
+            raise ValueError("Participant ID is required for QSIPrep")
 
         return QSIPrepInputs(
             bids_dir=ctx.config.paths.bids_root,
@@ -222,8 +205,8 @@ class QSIReconSchemaBuilder(SchemaBuilder):
         """Build QSIReconInputs schema."""
         from voxelops.schemas.qsirecon import QSIReconInputs
 
-        if not ctx.subject:
-            raise ValueError("Subject is required for QSIRecon")
+        if not ctx.participant_id:
+            raise ValueError("Participant ID is required for QSIRecon")
 
         recon_spec = None
         if ctx.voxelops_config.get("recon_spec"):
@@ -261,8 +244,8 @@ class QSIParcSchemaBuilder(SchemaBuilder):
         """Build QSIParcInputs schema."""
         from voxelops.schemas.qsiparc import QSIParcInputs
 
-        if not ctx.subject:
-            raise ValueError("Subject is required for QSIParc")
+        if not ctx.participant_id:
+            raise ValueError("Participant ID is required for QSIParc")
 
         return QSIParcInputs(
             qsirecon_dir=ctx.config.paths.derivatives / "qsirecon",

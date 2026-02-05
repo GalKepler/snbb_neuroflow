@@ -5,15 +5,11 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 import structlog
 
 from neuroflow.config import NeuroflowConfig, PipelineConfig
-
-if TYPE_CHECKING:
-    from neuroflow.models.session import Session
-    from neuroflow.models.subject import Subject
 
 log = structlog.get_logger("voxelops")
 
@@ -127,20 +123,40 @@ class VoxelopsAdapter:
         from neuroflow.models.session import Session
         from neuroflow.models.subject import Subject
 
-        # Fetch session/subject from database
+        # Fetch session/subject from database and extract data within context
+        # to avoid DetachedInstanceError
         state = StateManager(self.config)
+        participant_id = None
+        session_label = None
+        dicom_path = None
+
         with state.get_session() as db:
             session = db.get(Session, session_id) if session_id else None
             subject = db.get(Subject, subject_id) if subject_id else None
             if session and not subject:
                 subject = session.subject
 
-        # Build context
+            # Extract all needed data while still in database context
+            if subject:
+                # Remove 'sub-' prefix if present
+                participant_id = subject.participant_id
+                if participant_id.startswith("sub-"):
+                    participant_id = participant_id[4:]
+
+            if session:
+                # Remove 'ses-' prefix if present
+                session_label = session.session_id
+                if session_label.startswith("ses-"):
+                    session_label = session_label[4:]
+                dicom_path = Path(session.dicom_path) if session.dicom_path else None
+
+        # Build context with plain data (not ORM objects)
         ctx = BuilderContext(
             config=self.config,
             pipeline_config=pipeline_config,
-            session=session,
-            subject=subject,
+            participant_id=participant_id,
+            session_id=session_label,
+            dicom_path=dicom_path,
         )
 
         # Get builder and validate config
@@ -235,9 +251,9 @@ class VoxelopsAdapter:
     def _build_container_command(
         self,
         pipeline_config: PipelineConfig,
-        session_id: int | None,
-        subject_id: int | None,
-        **kwargs: Any,
+        _session_id: int | None,
+        _subject_id: int | None,
+        **_kwargs: Any,
     ) -> list[str]:
         """Build the container execution command.
 

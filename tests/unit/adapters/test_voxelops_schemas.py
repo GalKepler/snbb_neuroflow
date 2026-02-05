@@ -118,68 +118,69 @@ def qsirecon_pipeline_config(tmp_path):
 class TestBuilderContext:
     """Test BuilderContext dataclass."""
 
-    def test_participant_id_strips_prefix(self, mock_config, heudiconv_pipeline_config, mock_session):
-        """Test that participant_id strips 'sub-' prefix."""
+    def test_participant_id_stored_directly(self, mock_config, heudiconv_pipeline_config):
+        """Test that participant_id is stored as plain data."""
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=heudiconv_pipeline_config,
-            session=mock_session,
-            subject=mock_session.subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         assert ctx.participant_id == "001"
 
-    def test_participant_id_without_prefix(self, mock_config, heudiconv_pipeline_config, mock_session):
-        """Test participant_id when already without prefix."""
-        mock_session.subject.participant_id = "001"
+    def test_participant_id_can_be_none(self, mock_config, heudiconv_pipeline_config):
+        """Test that participant_id can be None."""
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=heudiconv_pipeline_config,
-            session=mock_session,
-            subject=mock_session.subject,
+            participant_id=None,
         )
 
-        assert ctx.participant_id == "001"
+        assert ctx.participant_id is None
 
-    def test_participant_id_raises_without_subject(self, mock_config, heudiconv_pipeline_config):
-        """Test that participant_id raises ValueError without subject."""
+    def test_session_id_stored_directly(self, mock_config, heudiconv_pipeline_config):
+        """Test that session_id is stored as plain data."""
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=heudiconv_pipeline_config,
-            session=None,
-            subject=None,
-        )
-
-        with pytest.raises(ValueError, match="Subject is required"):
-            _ = ctx.participant_id
-
-    def test_session_id_strips_prefix(self, mock_config, heudiconv_pipeline_config, mock_session):
-        """Test that session_id strips 'ses-' prefix."""
-        ctx = BuilderContext(
-            config=mock_config,
-            pipeline_config=heudiconv_pipeline_config,
-            session=mock_session,
-            subject=mock_session.subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         assert ctx.session_id == "baseline"
 
-    def test_session_id_returns_none_without_session(self, mock_config, heudiconv_pipeline_config, mock_subject):
-        """Test that session_id returns None without session."""
+    def test_session_id_can_be_none(self, mock_config, heudiconv_pipeline_config):
+        """Test that session_id can be None."""
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=heudiconv_pipeline_config,
-            session=None,
-            subject=mock_subject,
+            participant_id="001",
+            session_id=None,
         )
 
         assert ctx.session_id is None
+
+    def test_dicom_path_stored_as_path(self, mock_config, heudiconv_pipeline_config):
+        """Test that dicom_path is stored as Path object."""
+        dicom_path = Path("/data/dicom/sub-001/ses-baseline")
+        ctx = BuilderContext(
+            config=mock_config,
+            pipeline_config=heudiconv_pipeline_config,
+            participant_id="001",
+            dicom_path=dicom_path,
+        )
+
+        assert ctx.dicom_path == dicom_path
+        assert isinstance(ctx.dicom_path, Path)
 
 
 class TestHeudiconvSchemaBuilder:
     """Test HeudiConv schema builder."""
 
-    def test_validate_config_requires_heuristic(self, mock_config, mock_session):
+    def test_validate_config_requires_heuristic(self, mock_config):
         """Test that validation fails without heuristic."""
         pipeline_config = PipelineConfig(
             name="bids_conversion",
@@ -189,8 +190,9 @@ class TestHeudiconvSchemaBuilder:
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=pipeline_config,
-            session=mock_session,
-            subject=mock_session.subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         builder = HeudiconvSchemaBuilder()
@@ -198,14 +200,15 @@ class TestHeudiconvSchemaBuilder:
             builder.validate_config(ctx)
 
     def test_validate_config_checks_heuristic_exists(
-        self, mock_config, heudiconv_pipeline_config, mock_session
+        self, mock_config, heudiconv_pipeline_config
     ):
         """Test that validation checks if heuristic file exists."""
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=heudiconv_pipeline_config,
-            session=mock_session,
-            subject=mock_session.subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         builder = HeudiconvSchemaBuilder()
@@ -213,7 +216,7 @@ class TestHeudiconvSchemaBuilder:
             builder.validate_config(ctx)
 
     def test_validate_config_succeeds_with_valid_heuristic(
-        self, mock_config, tmp_path, mock_session
+        self, mock_config, tmp_path
     ):
         """Test that validation succeeds with valid heuristic."""
         heuristic_file = tmp_path / "test_heuristic.py"
@@ -227,8 +230,9 @@ class TestHeudiconvSchemaBuilder:
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=pipeline_config,
-            session=mock_session,
-            subject=mock_session.subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         builder = HeudiconvSchemaBuilder()
@@ -236,7 +240,7 @@ class TestHeudiconvSchemaBuilder:
 
     @requires_voxelops
     def test_build_inputs_creates_valid_schema(
-        self, mock_config, tmp_path, mock_session
+        self, mock_config, tmp_path
     ):
         """Test that build_inputs creates valid HeudiconvInputs."""
         from voxelops.schemas.heudiconv import HeudiconvInputs
@@ -252,8 +256,9 @@ class TestHeudiconvSchemaBuilder:
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=pipeline_config,
-            session=mock_session,
-            subject=mock_session.subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         builder = HeudiconvSchemaBuilder()
@@ -262,21 +267,22 @@ class TestHeudiconvSchemaBuilder:
         assert isinstance(inputs, HeudiconvInputs)
         assert inputs.participant == "001"
         assert inputs.session == "baseline"
-        assert inputs.dicom_dir == Path(mock_session.dicom_path)
+        assert inputs.dicom_dir == Path("/data/dicom/sub-001/ses-baseline")
         assert inputs.output_dir == mock_config.paths.bids_root
 
     @requires_voxelops
-    def test_build_inputs_raises_without_session(self, mock_config, heudiconv_pipeline_config, mock_subject):
-        """Test that build_inputs raises without session."""
+    def test_build_inputs_raises_without_dicom_path(self, mock_config, heudiconv_pipeline_config):
+        """Test that build_inputs raises without dicom_path."""
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=heudiconv_pipeline_config,
-            session=None,
-            subject=mock_subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=None,
         )
 
         builder = HeudiconvSchemaBuilder()
-        with pytest.raises(ValueError, match="Session is required"):
+        with pytest.raises(ValueError, match="DICOM path is required"):
             builder.build_inputs(ctx)
 
 
@@ -285,7 +291,7 @@ class TestQSIPrepSchemaBuilder:
 
     @requires_voxelops
     def test_build_inputs_creates_valid_schema(
-        self, mock_config, qsiprep_pipeline_config, mock_subject
+        self, mock_config, qsiprep_pipeline_config
     ):
         """Test that build_inputs creates valid QSIPrepInputs."""
         from voxelops.schemas.qsiprep import QSIPrepInputs
@@ -293,8 +299,9 @@ class TestQSIPrepSchemaBuilder:
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=qsiprep_pipeline_config,
-            session=None,
-            subject=mock_subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         builder = QSIPrepSchemaBuilder()
@@ -306,19 +313,20 @@ class TestQSIPrepSchemaBuilder:
         assert inputs.output_dir == mock_config.paths.derivatives / "qsiprep"
 
     @requires_voxelops
-    def test_build_inputs_raises_without_subject(
+    def test_build_inputs_raises_without_participant_id(
         self, mock_config, qsiprep_pipeline_config
     ):
-        """Test that build_inputs raises without subject."""
+        """Test that build_inputs raises without participant_id."""
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=qsiprep_pipeline_config,
-            session=None,
-            subject=None,
+            participant_id=None,
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         builder = QSIPrepSchemaBuilder()
-        with pytest.raises(ValueError, match="Subject is required"):
+        with pytest.raises(ValueError, match="Participant ID is required"):
             builder.build_inputs(ctx)
 
 
@@ -326,14 +334,15 @@ class TestQSIReconSchemaBuilder:
     """Test QSIRecon schema builder."""
 
     def test_validate_config_checks_recon_spec_exists(
-        self, mock_config, qsirecon_pipeline_config, mock_subject
+        self, mock_config, qsirecon_pipeline_config
     ):
         """Test that validation checks if recon_spec exists."""
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=qsirecon_pipeline_config,
-            session=None,
-            subject=mock_subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         builder = QSIReconSchemaBuilder()
@@ -342,7 +351,7 @@ class TestQSIReconSchemaBuilder:
 
     @requires_voxelops
     def test_build_inputs_creates_valid_schema(
-        self, mock_config, tmp_path, mock_subject
+        self, mock_config, tmp_path
     ):
         """Test that build_inputs creates valid QSIReconInputs."""
         from voxelops.schemas.qsirecon import QSIReconInputs
@@ -358,8 +367,9 @@ class TestQSIReconSchemaBuilder:
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=pipeline_config,
-            session=None,
-            subject=mock_subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         builder = QSIReconSchemaBuilder()
@@ -475,7 +485,7 @@ class TestHeudiconvDefaults:
 
     @requires_voxelops
     def test_build_defaults_with_all_options(
-        self, mock_config, tmp_path, mock_session
+        self, mock_config, tmp_path
     ):
         """Test build_defaults with all voxelops_config options."""
         from voxelops.schemas.heudiconv import HeudiconvDefaults
@@ -498,8 +508,9 @@ class TestHeudiconvDefaults:
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=pipeline_config,
-            session=mock_session,
-            subject=mock_session.subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         builder = HeudiconvSchemaBuilder()
@@ -515,7 +526,7 @@ class TestHeudiconvDefaults:
 
     @requires_voxelops
     def test_build_defaults_with_minimal_config(
-        self, mock_config, tmp_path, mock_session
+        self, mock_config, tmp_path
     ):
         """Test build_defaults uses default values."""
         from voxelops.schemas.heudiconv import HeudiconvDefaults
@@ -531,8 +542,9 @@ class TestHeudiconvDefaults:
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=pipeline_config,
-            session=mock_session,
-            subject=mock_session.subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         builder = HeudiconvSchemaBuilder()
@@ -550,7 +562,7 @@ class TestQSIPrepDefaults:
 
     @requires_voxelops
     def test_build_defaults_with_all_options(
-        self, mock_config, mock_subject, tmp_path
+        self, mock_config, tmp_path
     ):
         """Test build_defaults with all voxelops_config options."""
         from voxelops.schemas.qsiprep import QSIPrepDefaults
@@ -574,8 +586,9 @@ class TestQSIPrepDefaults:
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=pipeline_config,
-            session=None,
-            subject=mock_subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         builder = QSIPrepSchemaBuilder()
@@ -592,7 +605,7 @@ class TestQSIPrepDefaults:
 
     @requires_voxelops
     def test_build_defaults_uses_default_values(
-        self, mock_config, mock_subject
+        self, mock_config
     ):
         """Test build_defaults uses default values when not specified."""
         from voxelops.schemas.qsiprep import QSIPrepDefaults
@@ -605,8 +618,9 @@ class TestQSIPrepDefaults:
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=pipeline_config,
-            session=None,
-            subject=mock_subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         builder = QSIPrepSchemaBuilder()
@@ -625,7 +639,7 @@ class TestQSIReconDefaults:
 
     @requires_voxelops
     def test_build_defaults_with_all_options(
-        self, mock_config, mock_subject, tmp_path
+        self, mock_config, tmp_path
     ):
         """Test build_defaults with all voxelops_config options."""
         from voxelops.schemas.qsirecon import QSIReconDefaults
@@ -647,8 +661,9 @@ class TestQSIReconDefaults:
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=pipeline_config,
-            session=None,
-            subject=mock_subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         builder = QSIReconSchemaBuilder()
@@ -667,7 +682,7 @@ class TestQSIParcDefaults:
 
     @requires_voxelops
     def test_build_defaults_with_all_options(
-        self, mock_config, mock_subject
+        self, mock_config
     ):
         """Test build_defaults with all voxelops_config options."""
         from voxelops.schemas.qsiparc import QSIParcDefaults
@@ -685,8 +700,9 @@ class TestQSIParcDefaults:
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=pipeline_config,
-            session=None,
-            subject=mock_subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         builder = QSIParcSchemaBuilder()
@@ -700,7 +716,7 @@ class TestQSIParcDefaults:
 
     @requires_voxelops
     def test_build_inputs_creates_valid_schema(
-        self, mock_config, mock_subject
+        self, mock_config
     ):
         """Test that build_inputs creates valid QSIParcInputs."""
         from voxelops.schemas.qsiparc import QSIParcInputs
@@ -713,8 +729,9 @@ class TestQSIParcDefaults:
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=pipeline_config,
-            session=None,
-            subject=mock_subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         builder = QSIParcSchemaBuilder()
@@ -806,31 +823,32 @@ class TestHelperFunctions:
 class TestEdgeCases:
     """Test edge cases and error conditions."""
 
-    def test_session_id_without_prefix(self, mock_config, heudiconv_pipeline_config, mock_session):
+    def test_session_id_without_prefix(self, mock_config, heudiconv_pipeline_config):
         """Test session_id when already without 'ses-' prefix."""
-        mock_session.session_id = "baseline"
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=heudiconv_pipeline_config,
-            session=mock_session,
-            subject=mock_session.subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         assert ctx.session_id == "baseline"
 
-    def test_voxelops_config_property(self, mock_config, heudiconv_pipeline_config, mock_session):
+    def test_voxelops_config_property(self, mock_config, heudiconv_pipeline_config):
         """Test voxelops_config property shortcut."""
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=heudiconv_pipeline_config,
-            session=mock_session,
-            subject=mock_session.subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         assert ctx.voxelops_config == heudiconv_pipeline_config.voxelops_config
 
     def test_qsirecon_validation_succeeds_without_recon_spec(
-        self, mock_config, mock_subject
+        self, mock_config
     ):
         """Test QSIRecon validation succeeds when recon_spec not provided."""
         pipeline_config = PipelineConfig(
@@ -841,8 +859,9 @@ class TestEdgeCases:
         ctx = BuilderContext(
             config=mock_config,
             pipeline_config=pipeline_config,
-            session=None,
-            subject=mock_subject,
+            participant_id="001",
+            session_id="baseline",
+            dicom_path=Path("/data/dicom/sub-001/ses-baseline"),
         )
 
         builder = QSIReconSchemaBuilder()

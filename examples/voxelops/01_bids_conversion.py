@@ -56,7 +56,7 @@ def convert_session_to_bids(config_path: str, session_id: int):
         if session.status != SessionStatus.VALIDATED:
             print(f"\nWARNING: Session status is {session.status.value}, not VALIDATED")
             response = input("Continue anyway? [y/N]: ")
-            if response.lower() != 'y':
+            if response.lower() != "y":
                 sys.exit(0)
 
     # Create adapter and run conversion
@@ -99,7 +99,7 @@ def convert_session_to_bids(config_path: str, session_id: int):
 
         if result.logs:
             print("\n  Last 20 lines of logs:")
-            log_lines = result.logs.split('\n')
+            log_lines = result.logs.split("\n")
             for line in log_lines[-20:]:
                 print(f"    {line}")
 
@@ -120,9 +120,7 @@ def convert_all_validated_sessions(config_path: str):
     # Query validated sessions and extract IDs within context
     session_data = []
     with state.get_session() as db:
-        sessions = db.query(Session).filter(
-            Session.status == SessionStatus.VALIDATED
-        ).all()
+        sessions = db.query(Session).filter(Session.status == SessionStatus.VALIDATED).all()
 
         print(f"Found {len(sessions)} validated sessions")
 
@@ -137,14 +135,16 @@ def convert_all_validated_sessions(config_path: str):
             session_id = s.session_id
             db_id = s.id
             print(f"  - {subject_id} / {session_id}")
-            session_data.append({
-                "id": db_id,
-                "subject_id": subject_id,
-                "session_id": session_id,
-            })
+            session_data.append(
+                {
+                    "id": db_id,
+                    "subject_id": subject_id,
+                    "session_id": session_id,
+                }
+            )
 
         response = input(f"\nProcess all {len(session_data)} sessions? [y/N]: ")
-        if response.lower() != 'y':
+        if response.lower() != "y":
             print("Cancelled")
             return
 
@@ -153,7 +153,9 @@ def convert_all_validated_sessions(config_path: str):
     results = {"success": 0, "failed": 0, "skipped": 0}
 
     for i, session_info in enumerate(session_data, 1):
-        print(f"\n[{i}/{len(session_data)}] Processing {session_info['subject_id']}/{session_info['session_id']}")
+        print(
+            f"\n[{i}/{len(session_data)}] Processing {session_info['subject_id']}/{session_info['session_id']}"
+        )
 
         result = adapter.run("bids_conversion", session_id=session_info["id"])
 
