@@ -30,6 +30,13 @@ pipelines:
     version: "1.3.4"
     timeout_minutes: 60
     retries: 2
+    voxelops_config:
+      heuristic: "/etc/neuroflow/heuristics/brainbank.py"
+      bids_validator: true
+      overwrite: false
+      converter: "dcm2niix"
+      docker_image: "nipy/heudiconv:1.3.4"
+      post_process: true
 
   session_level:
     - name: "mriqc"
@@ -47,6 +54,45 @@ pipelines:
       timeout_minutes: 720
       requirements:
         bids_suffixes: ["T1w"]
+
+    - name: "qsiprep"
+      enabled: false  # Enable if you have diffusion data
+      runner: "voxelops.runners.qsiprep.run_qsiprep"
+      timeout_minutes: 720
+      voxelops_config:
+        nprocs: 8
+        mem_mb: 16000
+        output_resolution: 1.6
+        anatomical_template: ["MNI152NLin2009cAsym"]
+        fs_license: "/opt/freesurfer/license.txt"
+        docker_image: "pennlinc/qsiprep:latest"
+        force: false
+      requirements:
+        bids_suffixes: ["dwi"]
+
+  subject_level:
+    - name: "qsirecon"
+      enabled: false  # Enable if you have QSIPrep outputs
+      runner: "voxelops.runners.qsirecon.run_qsirecon"
+      timeout_minutes: 480
+      voxelops_config:
+        nprocs: 8
+        mem_mb: 16000
+        recon_spec: "/etc/neuroflow/specs/dsi_studio.yaml"
+        atlases: ["Brainnetome246Ext", "AAL116"]
+        fs_license: "/opt/freesurfer/license.txt"
+        docker_image: "pennlinc/qsirecon:latest"
+        force: false
+
+    - name: "qsiparc"
+      enabled: false  # Enable if you have QSIRecon outputs
+      runner: "voxelops.runners.qsiparc.run_qsiparc"
+      timeout_minutes: 120
+      voxelops_config:
+        mask: "gm"
+        force: false
+        n_jobs: 1
+        n_procs: 1
 
 celery:
   worker_concurrency: 2

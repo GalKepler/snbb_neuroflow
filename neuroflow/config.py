@@ -87,6 +87,7 @@ class PipelineConfig(BaseModel):
     resources: dict = Field(default_factory=dict)
     trigger_on_new_session: bool = False
     min_sessions: int = 2
+    voxelops_config: dict = Field(default_factory=dict)
 
 
 class BidsConversionConfig(BaseModel):
@@ -99,6 +100,7 @@ class BidsConversionConfig(BaseModel):
     heuristic_file: str | None = None
     timeout_minutes: int = 60
     retries: int = 2
+    voxelops_config: dict = Field(default_factory=dict)
 
 
 class PipelinesConfig(BaseModel):
