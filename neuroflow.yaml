@@ -19,11 +19,11 @@ dataset:
   session_ids: ["baseline", "followup"]
   dicom_participant_first: true
   google_sheet:
-    enabled: false
+    enabled: true
     spreadsheet_key: "1ZawIJ14Qep7r2Cs6PKI9lUVl5B2P3OKwdeTUARFQkag"
     worksheet_name: "IntegratedDatabase"
     service_account_file: "/etc/neuroflow/service-account.json"
-    csv_file: "/home/galkepler/Downloads/linked_sessions.csv"
+    csv_file: ""
     scan_id_column: "ScanID"
     subject_code_column: "SubjectCode"
     unknown_subject_id: "unknown"
