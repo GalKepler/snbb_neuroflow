@@ -42,7 +42,7 @@ pipelines:
     voxelops_config:
       heuristic: "/etc/neuroflow/heuristics/brainbank.py"
       bids_validator: true
-      overwrite: false
+      overwrite: true
       converter: "dcm2niix"
       docker_image: "nipy/heudiconv:1.3.4"
       post_process: true
