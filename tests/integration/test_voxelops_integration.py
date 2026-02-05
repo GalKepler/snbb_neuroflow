@@ -83,33 +83,32 @@ def test_subject(state):
         db.add(subject)
         db.commit()
         db.refresh(subject)
-        subject_id = subject.id
-
-    with state.get_session() as db:
-        return db.get(Subject, subject_id)
+        # Return the ID instead of the object to avoid detached instance errors
+        return subject.id
 
 
 @pytest.fixture
 def test_session(state, test_subject, tmp_path):
     """Create a test session in database."""
+    from datetime import datetime
+
     dicom_dir = tmp_path / "dicom" / "sub-001" / "ses-baseline"
     dicom_dir.mkdir(parents=True)
 
     with state.get_session() as db:
         session = Session(
-            subject_id=test_subject.id,
+            subject_id=test_subject,  # test_subject is now an ID
             session_id="ses-baseline",
             dicom_path=str(dicom_dir),
             status=SessionStatus.VALIDATED,
             is_valid=True,
+            discovered_at=datetime.now(),
         )
         db.add(session)
         db.commit()
         db.refresh(session)
-        session_id = session.id
-
-    with state.get_session() as db:
-        return db.get(Session, session_id)
+        # Return the ID instead of the object
+        return session.id
 
 
 class TestAdapterInitialization:
@@ -210,7 +209,7 @@ class TestVoxelOpsExecution:
         # Make VoxelOps available
         adapter._voxelops_available = True
 
-        result = adapter.run("bids_conversion", session_id=test_session.id)
+        result = adapter.run("bids_conversion", session_id=test_session)
 
         assert result.success is True
         assert result.exit_code == 0
@@ -243,7 +242,7 @@ class TestVoxelOpsExecution:
         # Make VoxelOps available
         adapter._voxelops_available = True
 
-        result = adapter.run("qsiprep", subject_id=test_subject.id)
+        result = adapter.run("qsiprep", subject_id=test_subject)
 
         assert result.success is True
         assert result.exit_code == 0
@@ -281,7 +280,7 @@ class TestVoxelOpsExecution:
                 output_path=tmp_path / "bids",
             )
 
-            result = adapter.run("bids_conversion", session_id=test_session.id)
+            result = adapter.run("bids_conversion", session_id=test_session)
 
             # Should have fallen back to container
             mock_container.assert_called_once()
@@ -318,7 +317,7 @@ class TestContainerExecution:
                 stderr="",
             )
 
-            result = adapter.run("bids_conversion", session_id=test_session.id)
+            result = adapter.run("bids_conversion", session_id=test_session)
 
             # Should have used container mode
             mock_run.assert_called_once()
@@ -334,7 +333,7 @@ class TestContainerExecution:
         adapter = VoxelopsAdapter(config_with_voxelops)
         adapter._voxelops_available = False
 
-        result = adapter.run("bids_conversion", session_id=test_session.id)
+        result = adapter.run("bids_conversion", session_id=test_session)
 
         assert result.success is False
         assert "No execution method available" in result.error_message
@@ -367,7 +366,7 @@ class TestDatabaseIntegration:
         adapter._voxelops_available = True
 
         # Execute
-        result = adapter.run("bids_conversion", session_id=test_session.id)
+        result = adapter.run("bids_conversion", session_id=test_session)
 
         # Verify runner was called with correct inputs
         assert mock_runner.called
@@ -397,7 +396,7 @@ class TestDatabaseIntegration:
         adapter._voxelops_available = True
 
         # Execute
-        result = adapter.run("qsiprep", subject_id=test_subject.id)
+        result = adapter.run("qsiprep", subject_id=test_subject)
 
         # Verify runner was called with correct inputs
         assert mock_runner.called

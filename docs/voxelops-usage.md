@@ -39,10 +39,10 @@ VoxelOps is a neuroimaging pipeline framework that provides standardized interfa
 
 ```bash
 # Install from GitHub
-pip install git+https://github.com/yalab-dev/VoxelOps.git
+pip install git+https://github.com/GalKepler/VoxelOps.git
 
 # Or clone and install in development mode
-git clone https://github.com/yalab-dev/VoxelOps.git
+git clone https://github.com/GalKepler/VoxelOps.git
 cd VoxelOps
 pip install -e .
 ```

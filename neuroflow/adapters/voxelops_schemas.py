@@ -183,7 +183,7 @@ class QSIPrepSchemaBuilder(SchemaBuilder):
         return QSIPrepInputs(
             bids_dir=ctx.config.paths.bids_root,
             output_dir=ctx.config.paths.derivatives / "qsiprep",
-            participant_label=ctx.participant_id,
+            participant=ctx.participant_id,
         )
 
     def build_defaults(self, ctx: BuilderContext) -> Any:
@@ -229,11 +229,14 @@ class QSIReconSchemaBuilder(SchemaBuilder):
         if ctx.voxelops_config.get("recon_spec"):
             recon_spec = Path(ctx.voxelops_config["recon_spec"])
 
+        atlases = ctx.voxelops_config.get("atlases", ["Brainnetome246Ext", "AAL116"])
+
         return QSIReconInputs(
             qsiprep_dir=ctx.config.paths.derivatives / "qsiprep",
             output_dir=ctx.config.paths.derivatives / "qsirecon",
-            participant_label=ctx.participant_id,
+            participant=ctx.participant_id,
             recon_spec=recon_spec,
+            atlases=atlases,
         )
 
     def build_defaults(self, ctx: BuilderContext) -> Any:
@@ -245,7 +248,6 @@ class QSIReconSchemaBuilder(SchemaBuilder):
         return QSIReconDefaults(
             nprocs=vox_cfg.get("nprocs", 8),
             mem_mb=vox_cfg.get("mem_mb", 16000),
-            atlases=vox_cfg.get("atlases", ["Brainnetome246Ext", "AAL116"]),
             fs_license=Path(vox_cfg["fs_license"]) if vox_cfg.get("fs_license") else None,
             docker_image=vox_cfg.get("docker_image", "pennlinc/qsirecon:latest"),
             force=vox_cfg.get("force", False),
@@ -265,7 +267,7 @@ class QSIParcSchemaBuilder(SchemaBuilder):
         return QSIParcInputs(
             qsirecon_dir=ctx.config.paths.derivatives / "qsirecon",
             output_dir=ctx.config.paths.derivatives / "qsiparc",
-            participant_label=ctx.participant_id,
+            participant=ctx.participant_id,
         )
 
     def build_defaults(self, ctx: BuilderContext) -> Any:

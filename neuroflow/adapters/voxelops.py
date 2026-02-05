@@ -124,6 +124,8 @@ class VoxelopsAdapter:
             parse_voxelops_result,
         )
         from neuroflow.core.state import StateManager
+        from neuroflow.models.session import Session
+        from neuroflow.models.subject import Subject
 
         # Fetch session/subject from database
         state = StateManager(self.config)

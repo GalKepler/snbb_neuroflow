@@ -301,7 +301,7 @@ class TestQSIPrepSchemaBuilder:
         inputs = builder.build_inputs(ctx)
 
         assert isinstance(inputs, QSIPrepInputs)
-        assert inputs.participant_label == "001"
+        assert inputs.participant == "001"
         assert inputs.bids_dir == mock_config.paths.bids_root
         assert inputs.output_dir == mock_config.paths.derivatives / "qsiprep"
 
@@ -366,7 +366,7 @@ class TestQSIReconSchemaBuilder:
         inputs = builder.build_inputs(ctx)
 
         assert isinstance(inputs, QSIReconInputs)
-        assert inputs.participant_label == "001"
+        assert inputs.participant == "001"
         assert inputs.recon_spec == recon_spec
 
 
@@ -639,7 +639,6 @@ class TestQSIReconDefaults:
             voxelops_config={
                 "nprocs": 16,
                 "mem_mb": 32000,
-                "atlases": ["Schaefer400", "Power264"],
                 "fs_license": str(fs_license),
                 "docker_image": "pennlinc/qsirecon:0.20.0",
                 "force": True,
@@ -658,7 +657,6 @@ class TestQSIReconDefaults:
         assert isinstance(defaults, QSIReconDefaults)
         assert defaults.nprocs == 16
         assert defaults.mem_mb == 32000
-        assert defaults.atlases == ["Schaefer400", "Power264"]
         assert defaults.fs_license == fs_license
         assert defaults.docker_image == "pennlinc/qsirecon:0.20.0"
         assert defaults.force is True
@@ -723,7 +721,7 @@ class TestQSIParcDefaults:
         inputs = builder.build_inputs(ctx)
 
         assert isinstance(inputs, QSIParcInputs)
-        assert inputs.participant_label == "001"
+        assert inputs.participant == "001"
         assert inputs.qsirecon_dir == mock_config.paths.derivatives / "qsirecon"
         assert inputs.output_dir == mock_config.paths.derivatives / "qsiparc"
 
