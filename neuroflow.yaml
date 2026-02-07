@@ -44,14 +44,14 @@ pipelines:
       bids_validator: true
       overwrite: true
       converter: "dcm2niix"
-      docker_image: "nipy/heudiconv:1.3.4"
+      docker_image: "docker://nipy/heudiconv:1.3.4"
       post_process: true
 
   session_level:
     - name: "mriqc"
       enabled: true
       runner: "voxelops.runners.mriqc"
-      container: "nipreps/mriqc:24.0.0"
+      container: "docker://nipreps/mriqc:24.0.0"
       timeout_minutes: 120
       requirements:
         bids_suffixes: ["T1w"]
@@ -59,7 +59,7 @@ pipelines:
     - name: "freesurfer"
       enabled: true
       runner: "voxelops.runners.freesurfer"
-      container: "freesurfer/freesurfer:7.4.1"
+      container: "docker://freesurfer/freesurfer:7.4.1"
       timeout_minutes: 720
       requirements:
         bids_suffixes: ["T1w"]
@@ -68,11 +68,11 @@ pipelines:
     - name: "qsiprep"
       enabled: true
       runner: "voxelops.runners.qsiprep"
-      container: "pennlinc/qsiprep:1.1.1"
+      container: "docker://pennlinc/qsiprep:1.1.1"
       timeout_minutes: 720
       retries: 1
       voxelops_config:
-        docker_image: "pennlinc/qsiprep:1.1.1"
+        docker_image: "docker://pennlinc/qsiprep:1.1.1"
         fs_license: "/home/galkepler/misc/freesurfer/license.txt"
         output_resolution: 1.6
         nprocs: 8
@@ -83,11 +83,11 @@ pipelines:
     - name: "qsirecon"
       enabled: true
       runner: "voxelops.runners.qsirecon"
-      container: "pennlinc/qsiprep:1.1.1"
+      container: "docker://pennlinc/qsiprep:1.1.1"
       timeout_minutes: 480
       retries: 2
       voxelops_config:
-        docker_image: "pennlinc/qsiprep:1.1.1"
+        docker_image: "docker://pennlinc/qsiprep:1.1.1"
         recon_spec: "mrtrix_multishell_msmt_ACT-hsvs"
         nprocs: 4
         mem_mb: 8000
@@ -97,11 +97,11 @@ pipelines:
     - name: "qsiparc"
       enabled: true
       runner: "voxelops.runners.qsiparc"
-      container: "pennlinc/qsiprep:1.1.1"
+      container: "docker://pennlinc/qsiprep:1.1.1"
       timeout_minutes: 240
       retries: 2
       voxelops_config:
-        docker_image: "pennlinc/qsiprep:1.1.1"
+        docker_image: "docker://pennlinc/qsiprep:1.1.1"
         atlas: "schaefer400"
         nprocs: 2
         mem_mb: 4000
