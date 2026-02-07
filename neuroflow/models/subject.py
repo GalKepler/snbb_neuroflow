@@ -1,9 +1,10 @@
 """Subject model."""
 
+from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Integer, JSON, String
+from sqlalchemy import Boolean, DateTime, Integer, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
@@ -37,6 +38,11 @@ class Subject(Base, TimestampMixin):
     failed_pipelines: Mapped[int] = mapped_column(Integer, default=0)
 
     metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSON)
+
+    # Workflow tracking
+    needs_qsiprep: Mapped[bool] = mapped_column(Boolean, default=False)
+    qsiprep_last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    sessions_at_last_qsiprep: Mapped[int] = mapped_column(Integer, default=0)
 
     # Relationships
     sessions: Mapped[list["Session"]] = relationship(back_populates="subject")

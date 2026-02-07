@@ -46,7 +46,17 @@ pipelines:
       converter: "dcm2niix"
       docker_image: "nipy/heudiconv:1.3.4"
       post_process: true
-
+      
+  qsiprep:
+    enabled: true
+    tool: "qsiprep"
+    version: "1.1.1"
+    timeout_minutes: 720
+    retries: 1
+    voxelops_config:
+      docker_image: "pennlinc/qsiprep:1.1.1"
+      fs_license_file: "/home/galkepler/misc/freesurfer/license.txt"
+  
   session_level:
     - name: "mriqc"
       enabled: true

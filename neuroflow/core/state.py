@@ -20,6 +20,8 @@ from neuroflow.models import (
     SessionStatus,
     Subject,
     SubjectStatus,
+    WorkflowRun,
+    WorkflowRunStatus,
 )
 
 log = structlog.get_logger("state")
@@ -513,3 +515,165 @@ class StateManager:
                 db.expunge(result)
                 make_transient(result)
             return result
+
+    # --- Workflow Run Operations ---
+
+    def create_workflow_run(
+        self,
+        trigger_type: str,
+        trigger_details: dict | None = None,
+    ) -> WorkflowRun:
+        """Create a new workflow run record."""
+        with self.get_session() as db:
+            run = WorkflowRun(
+                status=WorkflowRunStatus.RUNNING,
+                trigger_type=trigger_type,
+                trigger_details=trigger_details,
+                started_at=datetime.now(timezone.utc),
+                stages_completed=[],
+            )
+            db.add(run)
+            db.flush()
+
+            self._audit(
+                db,
+                entity_type="workflow_run",
+                entity_id=run.id,
+                action="created",
+                new_value=trigger_type,
+                message=f"Workflow run started ({trigger_type})",
+            )
+
+            log.info("workflow_run.created", workflow_run_id=run.id, trigger_type=trigger_type)
+
+            db.expunge(run)
+            make_transient(run)
+            return run
+
+    def update_workflow_run(
+        self,
+        workflow_run_id: int,
+        status: WorkflowRunStatus | None = None,
+        current_stage: str | None = None,
+        stages_completed: list[str] | None = None,
+        error_message: str | None = None,
+        error_stage: str | None = None,
+        **metrics: Any,
+    ) -> None:
+        """Update a workflow run record."""
+        with self.get_session() as db:
+            run = db.get(WorkflowRun, workflow_run_id)
+            if not run:
+                return
+
+            old_status = run.status.value if status else None
+
+            if status:
+                run.status = status
+            if current_stage is not None:
+                run.current_stage = current_stage
+            if stages_completed is not None:
+                run.stages_completed = stages_completed
+            if error_message:
+                run.error_message = error_message
+            if error_stage:
+                run.error_stage = error_stage
+
+            # Update metrics
+            for key, value in metrics.items():
+                if hasattr(run, key):
+                    setattr(run, key, value)
+
+            if status in (WorkflowRunStatus.COMPLETED, WorkflowRunStatus.FAILED, WorkflowRunStatus.CANCELLED):
+                run.completed_at = datetime.now(timezone.utc)
+
+            run.updated_at = datetime.now(timezone.utc)
+
+            if old_status:
+                self._audit(
+                    db,
+                    entity_type="workflow_run",
+                    entity_id=workflow_run_id,
+                    action="status_changed",
+                    old_value=old_status,
+                    new_value=status.value,
+                    message=f"Workflow status: {old_status} -> {status.value}",
+                )
+
+    def get_latest_workflow_run(self) -> WorkflowRun | None:
+        """Get the most recent workflow run."""
+        with self.get_session() as db:
+            run = db.execute(
+                select(WorkflowRun).order_by(WorkflowRun.started_at.desc()).limit(1)
+            ).scalar_one_or_none()
+
+            if run:
+                db.expunge(run)
+                make_transient(run)
+            return run
+
+    def get_workflow_run_history(
+        self,
+        limit: int = 10,
+        status: WorkflowRunStatus | None = None,
+    ) -> list[WorkflowRun]:
+        """Get workflow run history."""
+        with self.get_session() as db:
+            query = select(WorkflowRun).order_by(WorkflowRun.started_at.desc())
+
+            if status:
+                query = query.where(WorkflowRun.status == status)
+
+            query = query.limit(limit)
+
+            runs = db.execute(query).scalars().all()
+
+            for run in runs:
+                db.expunge(run)
+                make_transient(run)
+
+            return list(runs)
+
+    def mark_session_for_rerun(
+        self,
+        session_id: int,
+        reason: str,
+    ) -> None:
+        """Mark a session for reprocessing."""
+        with self.get_session() as db:
+            session = db.get(Session, session_id)
+            if session:
+                session.needs_rerun = True
+                session.last_failure_reason = reason
+                session.updated_at = datetime.now(timezone.utc)
+
+                self._audit(
+                    db,
+                    entity_type="session",
+                    entity_id=session_id,
+                    action="marked_for_rerun",
+                    message=reason,
+                    session_id=session_id,
+                    subject_id=session.subject_id,
+                )
+
+    def mark_subject_for_qsiprep(
+        self,
+        subject_id: int,
+        reason: str = "new_session",
+    ) -> None:
+        """Mark a subject for QSIPrep reprocessing."""
+        with self.get_session() as db:
+            subject = db.get(Subject, subject_id)
+            if subject:
+                subject.needs_qsiprep = True
+                subject.updated_at = datetime.now(timezone.utc)
+
+                self._audit(
+                    db,
+                    entity_type="subject",
+                    entity_id=subject_id,
+                    action="marked_for_qsiprep",
+                    message=reason,
+                    subject_id=subject_id,
+                )

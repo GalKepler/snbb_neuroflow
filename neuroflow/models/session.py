@@ -68,6 +68,13 @@ class Session(Base, TimestampMixin):
     scanner_id: Mapped[Optional[str]] = mapped_column(String(64))
     metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSON)
 
+    # Workflow tracking
+    needs_rerun: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_failure_reason: Mapped[Optional[str]] = mapped_column(Text)
+    last_bids_conversion_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_qsirecon_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_qsiparc_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
     # Relationships
     subject: Mapped["Subject"] = relationship(back_populates="sessions")
     pipeline_runs: Mapped[list["PipelineRun"]] = relationship(

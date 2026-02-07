@@ -12,6 +12,7 @@ from .base import Base, TimestampMixin
 if TYPE_CHECKING:
     from .session import Session
     from .subject import Subject
+    from .workflow_run import WorkflowRun
 
 
 class PipelineRunStatus(str, Enum):
@@ -34,6 +35,11 @@ class PipelineRun(Base, TimestampMixin):
     )
     subject_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("subjects.id"), index=True
+    )
+
+    # Workflow tracking
+    workflow_run_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("workflow_runs.id"), index=True
     )
 
     pipeline_name: Mapped[str] = mapped_column(String(64), index=True)
@@ -71,3 +77,6 @@ class PipelineRun(Base, TimestampMixin):
         back_populates="pipeline_runs", foreign_keys=[session_id]
     )
     subject: Mapped[Optional["Subject"]] = relationship(back_populates="pipeline_runs")
+    workflow_run: Mapped[Optional["WorkflowRun"]] = relationship(
+        back_populates="pipeline_runs", foreign_keys=[workflow_run_id]
+    )

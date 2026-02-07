@@ -34,7 +34,8 @@ def check_dwi_data(session: Session, bids_root: Path) -> bool:
     participant = session.subject.participant_id
     session_label = session.session_id
 
-    dwi_dir = bids_root / participant / session_label / "dwi"
+    dwi_dir = bids_root / f"sub-{participant}" / f"ses-{session_label}" / "dwi"
+    print(dwi_dir)
 
     if not dwi_dir.exists():
         return False
@@ -96,7 +97,9 @@ def run_qsiprep_for_session(
         # Check for DWI data
         if not check_dwi_data(session, config.paths.bids_root):
             print("\nERROR: No DWI data found in BIDS directory")
-            print(f"  Expected: {config.paths.bids_root}/{session.subject.participant_id}/{session.session_id}/dwi/")
+            print(
+                f"  Expected: {config.paths.bids_root}/{session.subject.participant_id}/{session.session_id}/dwi/"
+            )
             print("\nRun BIDS conversion first: python 01_bids_conversion.py")
             sys.exit(1)
 
@@ -122,7 +125,7 @@ def run_qsiprep_for_session(
     # Estimate processing time
     print("\nEstimated processing time: 4-12 hours (depending on hardware)")
     response = input("Continue? [y/N]: ")
-    if response.lower() != 'y':
+    if response.lower() != "y":
         print("Cancelled")
         sys.exit(0)
 
@@ -139,7 +142,9 @@ def run_qsiprep_for_session(
     print("\n" + "=" * 60)
     if result.success:
         print("✓ QSIPrep Successful!")
-        print(f"  Duration: {result.duration_seconds / 60:.1f} minutes ({result.duration_seconds / 3600:.1f} hours)")
+        print(
+            f"  Duration: {result.duration_seconds / 60:.1f} minutes ({result.duration_seconds / 3600:.1f} hours)"
+        )
         print(f"  Output: {result.output_path}")
 
         if result.metrics and result.metrics.get("skipped"):
@@ -161,7 +166,7 @@ def run_qsiprep_for_session(
 
         if result.logs:
             print("\n  Last 30 lines of logs:")
-            log_lines = result.logs.split('\n')
+            log_lines = result.logs.split("\n")
             for line in log_lines[-30:]:
                 print(f"    {line}")
 
@@ -184,7 +189,6 @@ def batch_process_sessions(config_path: str, force: bool = False):
     sessions_with_dwi = []
     with state.get_session() as db:
         all_sessions = db.query(Session).all()
-
         print("Scanning for sessions with DWI data...")
         for session in all_sessions:
             if check_dwi_data(session, config.paths.bids_root):
@@ -199,9 +203,11 @@ def batch_process_sessions(config_path: str, force: bool = False):
         return
 
     print(f"\nFound {len(sessions_with_dwi)} sessions with DWI data")
-    print(f"Estimated total time: {len(sessions_with_dwi) * 6} - {len(sessions_with_dwi) * 12} hours")
+    print(
+        f"Estimated total time: {len(sessions_with_dwi) * 6} - {len(sessions_with_dwi) * 12} hours"
+    )
     response = input(f"\nProcess all {len(sessions_with_dwi)} sessions? [y/N]: ")
-    if response.lower() != 'y':
+    if response.lower() != "y":
         print("Cancelled")
         return
 
@@ -212,7 +218,7 @@ def batch_process_sessions(config_path: str, force: bool = False):
     for i, session_id in enumerate(sessions_with_dwi, 1):
         print(f"\n{'=' * 60}")
         print(f"[{i}/{len(sessions_with_dwi)}] Processing session {session_id}")
-        print('=' * 60)
+        print("=" * 60)
 
         result = adapter.run("qsiprep", session_id=session_id, force=force)
 
@@ -238,9 +244,7 @@ def main():
     """Main entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Run QSIPrep diffusion preprocessing via VoxelOps"
-    )
+    parser = argparse.ArgumentParser(description="Run QSIPrep diffusion preprocessing via VoxelOps")
     parser.add_argument(
         "--config",
         default="neuroflow.yaml",
