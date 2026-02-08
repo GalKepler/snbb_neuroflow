@@ -56,6 +56,7 @@ def run_pipeline(
                 session_id=row["session_id"],
                 dicom_path=row.get("dicom_path", ""),
                 pipeline_name=name,
+                force=force,
             )
         )
 
