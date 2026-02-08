@@ -63,6 +63,7 @@ def mock_config(tmp_path):
     config.paths = Mock()
     config.paths.bids_root = tmp_path / "bids"
     config.paths.derivatives = tmp_path / "derivatives"
+    config.paths.work_dir = tmp_path / "work"
     config.pipelines = Mock(spec=PipelinesConfig)
     config.pipelines.bids_conversion = BidsConversionConfig(
         enabled=True,

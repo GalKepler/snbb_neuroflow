@@ -12,8 +12,16 @@ console = Console()
 @click.group()
 @click.option("--config", "-c", default=None, help="Config file path")
 @click.option("--log-level", default=None, help="Log level")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Show what would be done without doing it",
+)
 @click.pass_context
-def cli(ctx: click.Context, config: str | None, log_level: str | None) -> None:
+def cli(
+    ctx: click.Context, config: str | None, log_level: str | None, dry_run: bool
+) -> None:
     """Neuroflow - Neuroimaging pipeline orchestration."""
     ctx.ensure_object(dict)
 
@@ -24,44 +32,28 @@ def cli(ctx: click.Context, config: str | None, log_level: str | None) -> None:
         raise SystemExit(2) from e
 
     ctx.obj["config"] = cfg
+    ctx.obj["config_path"] = config or _find_config_path()
+    ctx.obj["dry_run"] = dry_run
 
     level = log_level or cfg.logging.level
     setup_logging(level=level, format=cfg.logging.format)
 
 
-@cli.group()
-def admin() -> None:
-    """Administrative commands."""
+def _find_config_path() -> str:
+    """Find the config file path that was actually loaded."""
+    import os
+    from pathlib import Path
 
-
-@admin.command("init-db")
-@click.pass_context
-def init_db(ctx: click.Context) -> None:
-    """Initialize the database."""
-    from neuroflow.core.state import StateManager
-
-    config = ctx.obj["config"]
-    state = StateManager(config)
-    state.init_db()
-    console.print("[green]Database initialized successfully.[/green]")
-
-
-@admin.command("reset")
-@click.option("--confirm", is_flag=True, help="Confirm database reset")
-@click.pass_context
-def reset_db(ctx: click.Context, confirm: bool) -> None:
-    """Reset the database (DANGEROUS)."""
-    if not confirm:
-        console.print("[red]Use --confirm to reset the database.[/red]")
-        return
-
-    from neuroflow.core.state import StateManager
-
-    config = ctx.obj["config"]
-    state = StateManager(config)
-    state.drop_db()
-    state.init_db()
-    console.print("[green]Database reset successfully.[/green]")
+    search_paths = [
+        os.environ.get("NEUROFLOW_CONFIG"),
+        "./neuroflow.yaml",
+        str(Path.home() / ".config" / "neuroflow" / "neuroflow.yaml"),
+        "/etc/neuroflow/neuroflow.yaml",
+    ]
+    for p in search_paths:
+        if p and Path(p).exists():
+            return str(Path(p).resolve())
+    return "./neuroflow.yaml"
 
 
 @cli.group("config")
@@ -107,17 +99,15 @@ def config_validate(ctx: click.Context, config_file: str | None) -> None:
 
 # Import and register subcommand groups
 def _register_commands() -> None:
-    from neuroflow.cli.export import export
-    from neuroflow.cli.process import process
     from neuroflow.cli.run import run
     from neuroflow.cli.scan import scan
     from neuroflow.cli.status import status
+    from neuroflow.cli.validate import validate
 
     cli.add_command(scan)
+    cli.add_command(validate)
     cli.add_command(status)
     cli.add_command(run)
-    cli.add_command(process)
-    cli.add_command(export)
 
 
 _register_commands()

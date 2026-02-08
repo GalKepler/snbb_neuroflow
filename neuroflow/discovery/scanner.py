@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import pandas as pd
 import structlog
 
 from neuroflow.config import NeuroflowConfig
-from neuroflow.core.state import StateManager
 
 log = structlog.get_logger("scanner")
 
@@ -63,27 +63,33 @@ def parse_dicom_path(
 class SessionScanner:
     """Scan directories for DICOM sessions."""
 
-    def __init__(self, config: NeuroflowConfig, state: StateManager | None = None):
+    def __init__(self, config: NeuroflowConfig):
         self.config = config
-        self.state = state or StateManager(config)
 
     def _use_sheet_mapping(self) -> bool:
         """Check whether sheet/CSV mapping is enabled."""
         gs = self.config.dataset.google_sheet
         return gs.enabled or bool(gs.csv_file)
 
-    def scan_all(self) -> list[SessionScanResult]:
-        """Scan all configured directories for new sessions."""
+    def scan_all(self) -> tuple[pd.DataFrame, dict[tuple[str, str], list[ScanInfo]]]:
+        """Scan all configured directories for new sessions.
+
+        Returns:
+            Tuple of (sessions_df, scans_by_session) where:
+            - sessions_df has columns: participant_id, session_id, dicom_path, recruitment_id
+            - scans_by_session maps (participant_id, session_id) -> list[ScanInfo]
+        """
         from neuroflow.discovery.sheet_mapper import SheetMapper
 
-        results = []
         incoming = self.config.paths.dicom_incoming
-
         log.info("scan.started", path=str(incoming))
+
+        rows: list[dict] = []
+        scans_by_session: dict[tuple[str, str], list[ScanInfo]] = {}
 
         if not incoming.exists():
             log.warning("scan.path_not_found", path=str(incoming))
-            return results
+            return pd.DataFrame(columns=["participant_id", "session_id", "dicom_path", "recruitment_id"]), scans_by_session
 
         mapper = None
         if self._use_sheet_mapping():
@@ -92,11 +98,18 @@ class SessionScanner:
         for session_path in self._find_session_dirs(incoming):
             result = self._scan_session(session_path, mapper=mapper)
             if result:
-                results.append(result)
-                self._register_session(result)
+                rows.append({
+                    "participant_id": result.subject_id,
+                    "session_id": result.session_id,
+                    "dicom_path": str(result.session_path),
+                    "recruitment_id": result.recruitment_id or "",
+                })
+                scans_by_session[(result.subject_id, result.session_id)] = result.scans
 
-        log.info("scan.completed", sessions_found=len(results))
-        return results
+        log.info("scan.completed", sessions_found=len(rows))
+
+        df = pd.DataFrame(rows, columns=["participant_id", "session_id", "dicom_path", "recruitment_id"])
+        return df, scans_by_session
 
     def _find_session_dirs(self, root: Path) -> list[Path]:
         """Find directories that look like DICOM sessions."""
@@ -148,8 +161,6 @@ class SessionScanner:
         mapper: "SheetMapper | None" = None,
     ) -> SessionScanResult | None:
         """Scan a session directory for DICOM series."""
-        from neuroflow.discovery.sheet_mapper import SheetMapper
-
         if mapper is not None:
             scan_id = session_path.name
             resolved = mapper.resolve(scan_id)
@@ -204,14 +215,3 @@ class SessionScanner:
                 continue
 
         return list(series.values())
-
-    def _register_session(self, result: SessionScanResult) -> None:
-        """Register a discovered session in the database."""
-        subject = self.state.get_or_create_subject(
-            result.subject_id, recruitment_id=result.recruitment_id
-        )
-        self.state.register_session(
-            subject_id=subject.id,
-            session_id=result.session_id,
-            dicom_path=str(result.session_path),
-        )

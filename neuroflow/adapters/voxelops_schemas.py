@@ -2,8 +2,14 @@
 
 This module provides a mapping between neuroflow's configuration/models
 and VoxelOps' schema-based runners (HeudiConv, QSIPrep, QSIRecon, QSIParc).
+
+Schema builders set "structural" fields (paths, participant) from neuroflow
+config, then pass through ALL other voxelops_config keys that the schema
+class accepts. This means neuroflow doesn't need updating when voxelops
+adds new schema fields.
 """
 
+import dataclasses
 import importlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -30,14 +36,10 @@ class BuilderContext:
 
     Encapsulates all the information needed to construct VoxelOps Input
     and Defaults schemas from neuroflow configuration.
-
-    Note: This holds plain data (strings, Paths), not SQLAlchemy ORM objects,
-    to avoid DetachedInstanceError when used outside database session context.
     """
 
     config: NeuroflowConfig
     pipeline_config: PipelineConfig
-    # Plain data fields instead of ORM objects
     participant_id: str | None = None  # Without 'sub-' prefix
     session_id: str | None = None  # Without 'ses-' prefix
     dicom_path: Path | None = None
@@ -48,48 +50,45 @@ class BuilderContext:
         return self.pipeline_config.voxelops_config
 
 
-class SchemaBuilder(ABC):
-    """Abstract base class for VoxelOps schema builders.
+def _build_dataclass(cls: type, explicit: dict[str, Any], vox_cfg: dict[str, Any]) -> Any:
+    """Build a dataclass instance, merging explicit fields with voxelops_config.
 
-    Each VoxelOps runner (HeudiConv, QSIPrep, etc.) has its own concrete
-    builder that knows how to construct the appropriate Input and Defaults
-    schemas from neuroflow context.
+    Explicit fields take precedence. Only keys that match actual dataclass
+    fields are passed — unknown keys are logged and skipped.
     """
+    accepted = {f.name for f in dataclasses.fields(cls)}
+
+    # Start with voxelops_config values that match schema fields
+    kwargs = {k: v for k, v in vox_cfg.items() if k in accepted}
+
+    # Explicit fields override voxelops_config
+    kwargs.update({k: v for k, v in explicit.items() if v is not None})
+
+    # Warn about unrecognized keys
+    unknown = set(vox_cfg.keys()) - accepted
+    if unknown:
+        log.debug("schema.unused_config_keys", cls=cls.__name__, keys=sorted(unknown))
+
+    return cls(**kwargs)
+
+
+class SchemaBuilder(ABC):
+    """Abstract base class for VoxelOps schema builders."""
 
     @abstractmethod
     def build_inputs(self, ctx: BuilderContext) -> Any:
-        """Build VoxelOps Inputs schema from context.
-
-        Args:
-            ctx: BuilderContext containing config and database models
-
-        Returns:
-            VoxelOps Inputs schema instance (e.g., HeudiconvInputs)
-        """
+        """Build VoxelOps Inputs schema from context."""
         pass
 
     @abstractmethod
     def build_defaults(self, ctx: BuilderContext) -> Any:
-        """Build VoxelOps Defaults schema from context.
-
-        Args:
-            ctx: BuilderContext containing config and database models
-
-        Returns:
-            VoxelOps Defaults schema instance (e.g., HeudiconvDefaults)
-        """
+        """Build VoxelOps Defaults schema from context."""
         pass
 
     def validate_config(self, ctx: BuilderContext) -> None:
         """Validate that required configuration is present.
 
         Override in subclasses to add runner-specific validation.
-
-        Args:
-            ctx: BuilderContext containing config
-
-        Raises:
-            SchemaValidationError: If required configuration is missing
         """
         pass
 
@@ -101,7 +100,6 @@ class HeudiconvSchemaBuilder(SchemaBuilder):
         """Validate HeudiConv configuration."""
         vox_cfg = ctx.voxelops_config
 
-        # Check for heuristic file
         if not vox_cfg.get("heuristic"):
             raise SchemaValidationError(
                 "HeudiConv requires 'heuristic' in voxelops_config"
@@ -120,7 +118,6 @@ class HeudiconvSchemaBuilder(SchemaBuilder):
         if not ctx.dicom_path:
             raise ValueError("DICOM path is required for HeudiConv")
 
-        # Get heuristic from config or BidsConversionConfig
         heuristic = None
         if ctx.voxelops_config.get("heuristic"):
             heuristic = Path(ctx.voxelops_config["heuristic"])
@@ -129,28 +126,23 @@ class HeudiconvSchemaBuilder(SchemaBuilder):
             if bids_cfg.heuristic_file:
                 heuristic = Path(bids_cfg.heuristic_file)
 
-        return HeudiconvInputs(
-            dicom_dir=ctx.dicom_path,
-            participant=ctx.participant_id,
-            session=ctx.session_id,
-            output_dir=ctx.config.paths.bids_root,
-            heuristic=heuristic,
+        return _build_dataclass(
+            HeudiconvInputs,
+            explicit={
+                "dicom_dir": ctx.dicom_path,
+                "participant": ctx.participant_id,
+                "session": ctx.session_id,
+                "output_dir": ctx.config.paths.bids_root,
+                "heuristic": heuristic,
+            },
+            vox_cfg=ctx.voxelops_config,
         )
 
     def build_defaults(self, ctx: BuilderContext) -> Any:
         """Build HeudiconvDefaults schema."""
         from voxelops.schemas.heudiconv import HeudiconvDefaults
 
-        vox_cfg = ctx.voxelops_config
-
-        return HeudiconvDefaults(
-            heuristic=Path(vox_cfg["heuristic"]) if vox_cfg.get("heuristic") else None,
-            bids_validator=vox_cfg.get("bids_validator", True),
-            overwrite=vox_cfg.get("overwrite", False),
-            converter=vox_cfg.get("converter", "dcm2niix"),
-            docker_image=vox_cfg.get("docker_image", "nipy/heudiconv:1.3.4"),
-            post_process=vox_cfg.get("post_process", True),
-        )
+        return _build_dataclass(HeudiconvDefaults, explicit={}, vox_cfg=ctx.voxelops_config)
 
 
 class QSIPrepSchemaBuilder(SchemaBuilder):
@@ -163,27 +155,22 @@ class QSIPrepSchemaBuilder(SchemaBuilder):
         if not ctx.participant_id:
             raise ValueError("Participant ID is required for QSIPrep")
 
-        return QSIPrepInputs(
-            bids_dir=ctx.config.paths.bids_root,
-            output_dir=ctx.config.paths.derivatives / "qsiprep",
-            participant=ctx.participant_id,
+        return _build_dataclass(
+            QSIPrepInputs,
+            explicit={
+                "bids_dir": ctx.config.paths.bids_root,
+                "output_dir": ctx.config.paths.derivatives / "qsiprep",
+                "participant": ctx.participant_id,
+                "work_dir": ctx.config.paths.work_dir / "qsiprep",
+            },
+            vox_cfg=ctx.voxelops_config,
         )
 
     def build_defaults(self, ctx: BuilderContext) -> Any:
         """Build QSIPrepDefaults schema."""
         from voxelops.schemas.qsiprep import QSIPrepDefaults
 
-        vox_cfg = ctx.voxelops_config
-
-        return QSIPrepDefaults(
-            nprocs=vox_cfg.get("nprocs", 8),
-            mem_mb=vox_cfg.get("mem_mb", 16000),
-            output_resolution=vox_cfg.get("output_resolution", 1.6),
-            anatomical_template=vox_cfg.get("anatomical_template", ["MNI152NLin2009cAsym"]),
-            fs_license=Path(vox_cfg["fs_license"]) if vox_cfg.get("fs_license") else None,
-            docker_image=vox_cfg.get("docker_image", "pennlinc/qsiprep:latest"),
-            force=vox_cfg.get("force", False),
-        )
+        return _build_dataclass(QSIPrepDefaults, explicit={}, vox_cfg=ctx.voxelops_config)
 
 
 class QSIReconSchemaBuilder(SchemaBuilder):
@@ -193,7 +180,6 @@ class QSIReconSchemaBuilder(SchemaBuilder):
         """Validate QSIRecon configuration."""
         vox_cfg = ctx.voxelops_config
 
-        # Check recon_spec if provided
         if vox_cfg.get("recon_spec"):
             recon_spec_path = Path(vox_cfg["recon_spec"])
             if not recon_spec_path.exists():
@@ -208,33 +194,22 @@ class QSIReconSchemaBuilder(SchemaBuilder):
         if not ctx.participant_id:
             raise ValueError("Participant ID is required for QSIRecon")
 
-        recon_spec = None
-        if ctx.voxelops_config.get("recon_spec"):
-            recon_spec = Path(ctx.voxelops_config["recon_spec"])
-
-        atlases = ctx.voxelops_config.get("atlases", ["Brainnetome246Ext", "AAL116"])
-
-        return QSIReconInputs(
-            qsiprep_dir=ctx.config.paths.derivatives / "qsiprep",
-            output_dir=ctx.config.paths.derivatives / "qsirecon",
-            participant=ctx.participant_id,
-            recon_spec=recon_spec,
-            atlases=atlases,
+        return _build_dataclass(
+            QSIReconInputs,
+            explicit={
+                "qsiprep_dir": ctx.config.paths.derivatives / "qsiprep",
+                "output_dir": ctx.config.paths.derivatives / "qsirecon",
+                "participant": ctx.participant_id,
+                "work_dir": ctx.config.paths.work_dir / "qsirecon",
+            },
+            vox_cfg=ctx.voxelops_config,
         )
 
     def build_defaults(self, ctx: BuilderContext) -> Any:
         """Build QSIReconDefaults schema."""
         from voxelops.schemas.qsirecon import QSIReconDefaults
 
-        vox_cfg = ctx.voxelops_config
-
-        return QSIReconDefaults(
-            nprocs=vox_cfg.get("nprocs", 8),
-            mem_mb=vox_cfg.get("mem_mb", 16000),
-            fs_license=Path(vox_cfg["fs_license"]) if vox_cfg.get("fs_license") else None,
-            docker_image=vox_cfg.get("docker_image", "pennlinc/qsirecon:latest"),
-            force=vox_cfg.get("force", False),
-        )
+        return _build_dataclass(QSIReconDefaults, explicit={}, vox_cfg=ctx.voxelops_config)
 
 
 class QSIParcSchemaBuilder(SchemaBuilder):
@@ -247,24 +222,22 @@ class QSIParcSchemaBuilder(SchemaBuilder):
         if not ctx.participant_id:
             raise ValueError("Participant ID is required for QSIParc")
 
-        return QSIParcInputs(
-            qsirecon_dir=ctx.config.paths.derivatives / "qsirecon",
-            output_dir=ctx.config.paths.derivatives / "qsiparc",
-            participant=ctx.participant_id,
+        return _build_dataclass(
+            QSIParcInputs,
+            explicit={
+                "qsirecon_dir": ctx.config.paths.derivatives / "qsirecon",
+                "output_dir": ctx.config.paths.derivatives / "qsiparc",
+                "participant": ctx.participant_id,
+                "session": ctx.session_id,
+            },
+            vox_cfg=ctx.voxelops_config,
         )
 
     def build_defaults(self, ctx: BuilderContext) -> Any:
         """Build QSIParcDefaults schema."""
         from voxelops.schemas.qsiparc import QSIParcDefaults
 
-        vox_cfg = ctx.voxelops_config
-
-        return QSIParcDefaults(
-            mask=vox_cfg.get("mask", "gm"),
-            force=vox_cfg.get("force", False),
-            n_jobs=vox_cfg.get("n_jobs", 1),
-            n_procs=vox_cfg.get("n_procs", 1),
-        )
+        return _build_dataclass(QSIParcDefaults, explicit={}, vox_cfg=ctx.voxelops_config)
 
 
 # Registry mapping runner names to builder classes
@@ -280,7 +253,7 @@ def get_schema_builder(runner_name: str) -> SchemaBuilder:
     """Factory function to get appropriate schema builder for a runner.
 
     Args:
-        runner_name: Full module path to runner function (e.g., 'voxelops.runners.heudiconv.run_heudiconv')
+        runner_name: Full module path to runner function
 
     Returns:
         SchemaBuilder instance for the runner
@@ -303,12 +276,6 @@ def parse_voxelops_result(result: dict[str, Any]) -> PipelineResult:
 
     VoxelOps runners return structured result dicts with metadata about
     execution. This function normalizes them to neuroflow's PipelineResult.
-
-    Args:
-        result: Dict returned by VoxelOps runner
-
-    Returns:
-        PipelineResult with normalized fields
     """
     # Handle skipped runs (outputs exist, force=False)
     if result.get("skipped"):

@@ -45,12 +45,7 @@ def test_validate_insufficient_files(validator: SessionValidator):
 
 def test_validate_no_required_scans(tmp_paths):
     """Test validation with no required scans (just min file count)."""
-    from neuroflow.config import (
-        DatabaseConfig,
-        DatasetConfig,
-        LoggingConfig,
-        PathConfig,
-    )
+    from neuroflow.config import LoggingConfig, PathConfig
 
     config = NeuroflowConfig(
         paths=PathConfig(

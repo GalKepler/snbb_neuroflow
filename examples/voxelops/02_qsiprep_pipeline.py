@@ -67,7 +67,7 @@ def run_qsiprep_for_session(
 
     # Verify FreeSurfer license
     qsiprep_cfg = None
-    for pipeline in config.pipelines.session_level:
+    for pipeline in config.pipelines.subject_level:
         if pipeline.name == "qsiprep":
             qsiprep_cfg = pipeline
             break

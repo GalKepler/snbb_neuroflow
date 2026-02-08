@@ -4,8 +4,8 @@ import pytest
 from pathlib import Path
 
 from neuroflow.config import (
-    DatabaseConfig,
     DatasetConfig,
+    ExecutionConfig,
     LoggingConfig,
     NeuroflowConfig,
     PathConfig,
@@ -14,7 +14,6 @@ from neuroflow.config import (
     ScanRequirement,
 )
 from neuroflow.core.logging import setup_logging
-from neuroflow.core.state import StateManager
 
 
 @pytest.fixture(autouse=True)
@@ -32,6 +31,7 @@ def tmp_paths(tmp_path: Path) -> dict[str, Path]:
         "derivatives": tmp_path / "derivatives",
         "work_dir": tmp_path / "work",
         "log_dir": tmp_path / "logs",
+        "state_dir": tmp_path / "state",
     }
     for d in dirs.values():
         d.mkdir(parents=True, exist_ok=True)
@@ -40,7 +40,7 @@ def tmp_paths(tmp_path: Path) -> dict[str, Path]:
 
 @pytest.fixture
 def config(tmp_paths: dict[str, Path]) -> NeuroflowConfig:
-    """Create a test configuration with SQLite in-memory."""
+    """Create a test configuration."""
     return NeuroflowConfig(
         paths=PathConfig(
             dicom_incoming=tmp_paths["dicom_incoming"],
@@ -49,7 +49,10 @@ def config(tmp_paths: dict[str, Path]) -> NeuroflowConfig:
             work_dir=tmp_paths["work_dir"],
             log_dir=tmp_paths["log_dir"],
         ),
-        database=DatabaseConfig(url="sqlite:///:memory:"),
+        execution=ExecutionConfig(
+            max_workers=1,
+            state_dir=tmp_paths["state_dir"],
+        ),
         dataset=DatasetConfig(
             name="test",
             session_ids=["baseline", "followup"],
@@ -68,11 +71,3 @@ def config(tmp_paths: dict[str, Path]) -> NeuroflowConfig:
         ),
         logging=LoggingConfig(level="DEBUG", format="console"),
     )
-
-
-@pytest.fixture
-def state(config: NeuroflowConfig) -> StateManager:
-    """Create a StateManager with initialized database."""
-    sm = StateManager(config)
-    sm.init_db()
-    return sm

@@ -54,7 +54,6 @@ def _make_config(tmp_path: Path, sheet_enabled: bool = False) -> NeuroflowConfig
             derivatives=tmp_path / "derivatives",
             work_dir=tmp_path / "work",
         ),
-        database={"url": "sqlite:///:memory:"},
         dataset=DatasetConfig(
             google_sheet=GoogleSheetConfig(enabled=sheet_enabled),
         ),
@@ -70,8 +69,7 @@ class TestFindSessionDirsFlat:
         (tmp_path / ".hidden").mkdir()
 
         config = _make_config(tmp_path, sheet_enabled=True)
-        mock_state = MagicMock()
-        scanner = SessionScanner(config, state=mock_state)
+        scanner = SessionScanner(config)
 
         dirs = scanner._find_session_dirs(tmp_path)
 
@@ -83,16 +81,14 @@ class TestFindSessionDirsFlat:
         (tmp_path / "readme.txt").touch()
 
         config = _make_config(tmp_path, sheet_enabled=True)
-        mock_state = MagicMock()
-        scanner = SessionScanner(config, state=mock_state)
+        scanner = SessionScanner(config)
 
         dirs = scanner._find_session_dirs(tmp_path)
         assert len(dirs) == 1
 
     def test_flat_layout_empty_dir(self, tmp_path):
         config = _make_config(tmp_path, sheet_enabled=True)
-        mock_state = MagicMock()
-        scanner = SessionScanner(config, state=mock_state)
+        scanner = SessionScanner(config)
 
         dirs = scanner._find_session_dirs(tmp_path)
         assert dirs == []
@@ -106,8 +102,7 @@ class TestScanSessionWithMapper:
         scan_dir.mkdir()
 
         config = _make_config(tmp_path, sheet_enabled=True)
-        mock_state = MagicMock()
-        scanner = SessionScanner(config, state=mock_state)
+        scanner = SessionScanner(config)
 
         mapper = MagicMock(spec=SheetMapper)
         mapper.resolve.return_value = SubjectMapping(
@@ -129,8 +124,7 @@ class TestScanSessionWithMapper:
         session_dir.mkdir(parents=True)
 
         config = _make_config(tmp_path, sheet_enabled=False)
-        mock_state = MagicMock()
-        scanner = SessionScanner(config, state=mock_state)
+        scanner = SessionScanner(config)
 
         result = scanner._scan_session(session_dir, mapper=None)
 

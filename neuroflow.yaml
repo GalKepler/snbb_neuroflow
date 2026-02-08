@@ -1,4 +1,4 @@
-# Neuroflow Configuration Example
+# Neuroflow Configuration
 # Copy to neuroflow.yaml and customize
 
 paths:
@@ -8,11 +8,10 @@ paths:
   work_dir: /media/storage/yalab-dev/snbb_neuroflow/.neuroflow
   log_dir: /var/log/neuroflow
 
-database:
-  url: "sqlite:////media/storage/yalab-dev/snbb_neuroflow/.neuroflow/neuroflow.db"
-
-redis:
-  url: "redis://localhost:6379/0"
+execution:
+  max_workers: 2
+  log_per_session: true
+  state_dir: /media/storage/yalab-dev/snbb_neuroflow/.neuroflow
 
 dataset:
   name: "brainbank"
@@ -44,74 +43,50 @@ pipelines:
       bids_validator: true
       overwrite: true
       converter: "dcm2niix"
-      docker_image: "docker://nipy/heudiconv:1.3.4"
+      docker_image: "nipy/heudiconv:1.3.4"
       post_process: true
-
-  session_level:
-    - name: "mriqc"
-      enabled: true
-      runner: "voxelops.runners.mriqc"
-      container: "docker://nipreps/mriqc:24.0.0"
-      timeout_minutes: 120
-      requirements:
-        bids_suffixes: ["T1w"]
-
-    - name: "freesurfer"
-      enabled: true
-      runner: "voxelops.runners.freesurfer"
-      container: "docker://freesurfer/freesurfer:7.4.1"
-      timeout_minutes: 720
-      requirements:
-        bids_suffixes: ["T1w"]
+      bids: None
 
   subject_level:
     - name: "qsiprep"
       enabled: true
       runner: "voxelops.runners.qsiprep"
-      container: "docker://pennlinc/qsiprep:1.1.1"
       timeout_minutes: 720
       retries: 1
       voxelops_config:
-        docker_image: "docker://pennlinc/qsiprep:1.1.1"
+        docker_image: "pennlinc/qsiprep:1.1.1"
         fs_license: "/home/galkepler/misc/freesurfer/license.txt"
         output_resolution: 1.6
         nprocs: 8
         mem_mb: 16000
+        bids_filters: "/etc/neuroflow/bids_filters/bids_filters.json"
       requirements:
         bids_suffixes: ["dwi"]
 
     - name: "qsirecon"
       enabled: true
       runner: "voxelops.runners.qsirecon"
-      container: "docker://pennlinc/qsiprep:1.1.1"
       timeout_minutes: 480
       retries: 2
       voxelops_config:
-        docker_image: "docker://pennlinc/qsiprep:1.1.1"
-        recon_spec: "mrtrix_multishell_msmt_ACT-hsvs"
+        docker_image: "pennlinc/qsirecon:1.1.2"
         nprocs: 4
         mem_mb: 8000
+        datasets: {"atlases": "/media/storage/yalab-dev/voxelops/Schaefer2018Tian2020_atlases"}
+        atlases: ["4S156Parcels", "Schaefer2018N100n7Tian2020S1"]
       requirements:
         bids_suffixes: ["dwi"]
 
     - name: "qsiparc"
       enabled: true
       runner: "voxelops.runners.qsiparc"
-      container: "docker://pennlinc/qsiprep:1.1.1"
       timeout_minutes: 240
       retries: 2
       voxelops_config:
-        docker_image: "docker://pennlinc/qsiprep:1.1.1"
-        atlas: "schaefer400"
         nprocs: 2
         mem_mb: 4000
       requirements:
         bids_suffixes: ["dwi"]
-
-celery:
-  worker_concurrency: 2
-  task_soft_time_limit: 43200
-  task_time_limit: 86400
 
 logging:
   level: INFO

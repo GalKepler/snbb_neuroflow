@@ -27,18 +27,12 @@ class PathConfig(BaseModel):
     log_dir: Path = Path("/var/log/neuroflow")
 
 
-class DatabaseConfig(BaseModel):
-    """Database configuration."""
+class ExecutionConfig(BaseModel):
+    """Execution configuration for parallel processing."""
 
-    url: str = "sqlite:///neuroflow.db"
-    pool_size: int = 5
-    max_overflow: int = 10
-
-
-class RedisConfig(BaseModel):
-    """Redis configuration."""
-
-    url: str = "redis://localhost:6379/0"
+    max_workers: int = 2
+    log_per_session: bool = True
+    state_dir: Path = Path(".neuroflow")
 
 
 class GoogleSheetConfig(BaseModel):
@@ -80,7 +74,6 @@ class PipelineConfig(BaseModel):
     name: str
     enabled: bool = True
     runner: str = ""
-    container: str | None = None
     timeout_minutes: int = 60
     retries: int = 2
     requirements: dict = Field(default_factory=dict)
@@ -96,7 +89,6 @@ class BidsConversionConfig(BaseModel):
     enabled: bool = True
     tool: str = "heudiconv"
     version: str = "1.3.4"
-    container: str | None = None
     heuristic_file: str | None = None
     timeout_minutes: int = 60
     retries: int = 2
@@ -111,28 +103,11 @@ class PipelinesConfig(BaseModel):
     subject_level: list[PipelineConfig] = Field(default_factory=list)
 
 
-class CeleryConfig(BaseModel):
-    """Celery worker configuration."""
-
-    worker_concurrency: int = 2
-    task_soft_time_limit: int = 43200
-    task_time_limit: int = 86400
-    default_retry_delay: int = 300
-    max_retries: int = 3
-
-
 class LoggingConfig(BaseModel):
     """Logging configuration."""
 
     level: str = "INFO"
-    format: Literal["json", "console"] = "json"
-
-
-class NotificationConfig(BaseModel):
-    """Notification configuration."""
-
-    slack_webhook_url: str | None = None
-    email_on_failure: str | None = None
+    format: Literal["json", "console"] = "console"
 
 
 class NeuroflowConfig(BaseSettings):
@@ -141,20 +116,15 @@ class NeuroflowConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="NEUROFLOW_",
         env_nested_delimiter="__",
+        extra="ignore",
     )
 
     paths: PathConfig
-    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
-    redis: RedisConfig = Field(default_factory=RedisConfig)
     dataset: DatasetConfig = Field(default_factory=DatasetConfig)
     protocol: ProtocolConfig = Field(default_factory=ProtocolConfig)
     pipelines: PipelinesConfig = Field(default_factory=PipelinesConfig)
-    celery: CeleryConfig = Field(default_factory=CeleryConfig)
+    execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
-    notifications: NotificationConfig = Field(default_factory=NotificationConfig)
-
-    container_runtime: Literal["apptainer", "docker", "singularity"] = "apptainer"
-    compute_environment: Literal["local", "slurm", "sge"] = "local"
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "NeuroflowConfig":

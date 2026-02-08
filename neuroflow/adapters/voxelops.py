@@ -1,8 +1,6 @@
 """Adapter for calling voxelops pipeline runners."""
 
 import importlib
-import subprocess
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -28,7 +26,11 @@ class PipelineResult:
 
 
 class VoxelopsAdapter:
-    """Adapter for calling voxelops procedures."""
+    """Adapter that passes pipeline inputs to voxelops and collects results.
+
+    Neuroflow does NOT execute containers — voxelops handles all of that.
+    This adapter builds the input/config schemas and calls the voxelops runner.
+    """
 
     def __init__(self, config: NeuroflowConfig):
         self.config = config
@@ -40,19 +42,25 @@ class VoxelopsAdapter:
             importlib.import_module("voxelops")
             return True
         except (ImportError, ModuleNotFoundError):
-            log.warning("voxelops.not_available", message="VoxelOps not installed, will use container mode")
+            log.warning("voxelops.not_available")
             return False
 
     def run(
         self,
         pipeline_name: str,
-        session_id: int | None = None,
-        subject_id: int | None = None,
+        participant_id: str | None = None,
+        session_id: str | None = None,
+        dicom_path: Path | None = None,
         **kwargs: Any,
     ) -> PipelineResult:
         """Run a pipeline via voxelops.
 
-        Tries direct import first, falls back to container execution.
+        Args:
+            pipeline_name: Name of the pipeline to run.
+            participant_id: Participant identifier (with or without 'sub-' prefix).
+            session_id: Session identifier (with or without 'ses-' prefix).
+            dicom_path: Path to the DICOM directory.
+            **kwargs: Additional arguments passed to the runner.
         """
         pipeline_config = self._get_pipeline_config(pipeline_name)
         if not pipeline_config:
@@ -62,100 +70,94 @@ class VoxelopsAdapter:
                 error_message=f"Unknown pipeline: {pipeline_name}",
             )
 
+        if not self._voxelops_available:
+            return PipelineResult(
+                success=False,
+                exit_code=-1,
+                error_message=(
+                    "voxelops is not installed. "
+                    "Install it with: pip install voxelops"
+                ),
+            )
+
+        resolved_runner = self._resolve_runner(pipeline_config.runner)
+        if not resolved_runner:
+            return PipelineResult(
+                success=False,
+                exit_code=-1,
+                error_message=(
+                    f"Runner '{pipeline_config.runner}' not recognized. "
+                    f"Check the 'runner' field in your pipeline config."
+                ),
+            )
+
         log.info(
             "adapter.run",
             pipeline=pipeline_name,
+            runner=resolved_runner,
+            participant_id=participant_id,
             session_id=session_id,
-            subject_id=subject_id,
         )
 
-        # Use VoxelOps schema mapping if available
-        if self._voxelops_available and pipeline_config.runner in self._get_voxelops_runners():
-            try:
-                return self._run_via_voxelops(
-                    pipeline_config, session_id, subject_id, **kwargs
-                )
-            except Exception as e:
-                log.error(
-                    "adapter.voxelops_failed",
-                    pipeline=pipeline_name,
-                    error=str(e),
-                )
-                # Fall back to container mode if VoxelOps fails
-                if pipeline_config.container:
-                    log.info("adapter.fallback_to_container", pipeline=pipeline_name)
-                    return self._run_via_container(
-                        pipeline_config, session_id, subject_id, **kwargs
-                    )
-                raise
-
-        # Fall back to container mode
-        if pipeline_config.container:
-            return self._run_via_container(
-                pipeline_config, session_id, subject_id, **kwargs
-            )
-
-        return PipelineResult(
-            success=False,
-            exit_code=-1,
-            error_message=f"No execution method available for pipeline {pipeline_name}",
+        # Use the resolved full runner name
+        resolved_config = PipelineConfig(**{
+            **pipeline_config.model_dump(),
+            "runner": resolved_runner,
+        })
+        return self._run_via_voxelops(
+            resolved_config, participant_id, session_id, dicom_path, **kwargs
         )
 
-    def _get_voxelops_runners(self) -> list[str]:
-        """Get list of supported VoxelOps runner names."""
+    def _resolve_runner(self, runner: str) -> str | None:
+        """Resolve a runner name to a full schema builder key.
+
+        Handles both full names ('voxelops.runners.qsiprep.run_qsiprep')
+        and short names ('voxelops.runners.qsiprep').
+        """
         from neuroflow.adapters.voxelops_schemas import SCHEMA_BUILDERS
-        return list(SCHEMA_BUILDERS.keys())
+
+        if runner in SCHEMA_BUILDERS:
+            return runner
+
+        # Try appending run_{last_component} for short-form names
+        # e.g. 'voxelops.runners.qsiprep' -> 'voxelops.runners.qsiprep.run_qsiprep'
+        last = runner.rsplit(".", 1)[-1]
+        full = f"{runner}.run_{last}"
+        if full in SCHEMA_BUILDERS:
+            return full
+
+        return None
 
     def _run_via_voxelops(
         self,
         pipeline_config: PipelineConfig,
-        session_id: int | None,
-        subject_id: int | None,
+        participant_id: str | None,
+        session_id: str | None,
+        dicom_path: Path | None,
         **kwargs: Any,
     ) -> PipelineResult:
-        """Run pipeline via VoxelOps with schema mapping."""
+        """Build schemas, call voxelops runner, return result."""
         from neuroflow.adapters.voxelops_schemas import (
             BuilderContext,
             get_schema_builder,
             parse_voxelops_result,
         )
-        from neuroflow.core.state import StateManager
-        from neuroflow.models.session import Session
-        from neuroflow.models.subject import Subject
 
-        # Fetch session/subject from database and extract data within context
-        # to avoid DetachedInstanceError
-        state = StateManager(self.config)
-        participant_id = None
-        session_label = None
-        dicom_path = None
+        # Strip prefixes if present
+        clean_participant = participant_id
+        if clean_participant and clean_participant.startswith("sub-"):
+            clean_participant = clean_participant[4:]
 
-        with state.get_session() as db:
-            session = db.get(Session, session_id) if session_id else None
-            subject = db.get(Subject, subject_id) if subject_id else None
-            if session and not subject:
-                subject = session.subject
+        clean_session = session_id
+        if clean_session and clean_session.startswith("ses-"):
+            clean_session = clean_session[4:]
 
-            # Extract all needed data while still in database context
-            if subject:
-                # Remove 'sub-' prefix if present
-                participant_id = subject.participant_id
-                if participant_id.startswith("sub-"):
-                    participant_id = participant_id[4:]
-
-            if session:
-                # Remove 'ses-' prefix if present
-                session_label = session.session_id
-                if session_label.startswith("ses-"):
-                    session_label = session_label[4:]
-                dicom_path = Path(session.dicom_path) if session.dicom_path else None
-
-        # Build context with plain data (not ORM objects)
+        # Build context directly from arguments
         ctx = BuilderContext(
             config=self.config,
             pipeline_config=pipeline_config,
-            participant_id=participant_id,
-            session_id=session_label,
+            participant_id=clean_participant,
+            session_id=clean_session,
             dicom_path=dicom_path,
         )
 
@@ -184,14 +186,14 @@ class VoxelopsAdapter:
             inputs=str(inputs),
         )
 
-        # Call VoxelOps runner
+        # Call VoxelOps runner — it handles containers, execution, everything
         result = runner_func(inputs=inputs, config=defaults)
 
         # Parse and return
         pipeline_result = parse_voxelops_result(result)
 
         log.info(
-            "adapter.voxelops_complete",
+            "adapter.complete",
             runner=pipeline_config.runner,
             success=pipeline_result.success,
             duration=pipeline_result.duration_seconds,
@@ -199,88 +201,11 @@ class VoxelopsAdapter:
 
         return pipeline_result
 
-    def _run_via_container(
-        self,
-        pipeline_config: PipelineConfig,
-        session_id: int | None,
-        subject_id: int | None,
-        **kwargs: Any,
-    ) -> PipelineResult:
-        """Run pipeline via container (apptainer/docker)."""
-        if not pipeline_config.container:
-            return PipelineResult(
-                success=False,
-                exit_code=-1,
-                error_message=(
-                    f"No container configured for pipeline {pipeline_config.name} "
-                    f"and runner {pipeline_config.runner} not importable"
-                ),
-            )
-
-        start_time = time.time()
-        cmd = self._build_container_command(
-            pipeline_config, session_id, subject_id, **kwargs
-        )
-
-        log.info("container.execute", cmd=" ".join(cmd))
-
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=pipeline_config.timeout_minutes * 60,
-            )
-
-            return PipelineResult(
-                success=result.returncode == 0,
-                exit_code=result.returncode,
-                duration_seconds=time.time() - start_time,
-                error_message=result.stderr if result.returncode != 0 else None,
-                logs=result.stdout,
-            )
-
-        except subprocess.TimeoutExpired:
-            return PipelineResult(
-                success=False,
-                exit_code=-1,
-                duration_seconds=time.time() - start_time,
-                error_message=f"Timeout after {pipeline_config.timeout_minutes} minutes",
-            )
-
-    def _build_container_command(
-        self,
-        pipeline_config: PipelineConfig,
-        _session_id: int | None,
-        _subject_id: int | None,
-        **_kwargs: Any,
-    ) -> list[str]:
-        """Build the container execution command.
-
-        NOTE: This is a basic implementation for backward compatibility.
-        VoxelOps handles container execution internally when using schema mapping.
-        """
-        runtime = self.config.container_runtime
-
-        if runtime == "apptainer":
-            cmd = ["apptainer", "run"]
-        elif runtime == "docker":
-            cmd = ["docker", "run", "--rm"]
-        else:
-            cmd = ["singularity", "run"]
-
-        # Add container image
-        cmd.append(pipeline_config.container or "")
-
-        return cmd
-
     def _get_pipeline_config(self, pipeline_name: str) -> PipelineConfig | None:
         """Get pipeline configuration by name."""
-        # Check if this is bids_conversion
         if pipeline_name == "bids_conversion":
             bids_cfg = self.config.pipelines.bids_conversion
             if isinstance(bids_cfg, dict):
-                # Handle dict config (backward compatibility)
                 return PipelineConfig(
                     name="bids_conversion",
                     enabled=bids_cfg.get("enabled", True),
@@ -289,17 +214,14 @@ class VoxelopsAdapter:
                     voxelops_config=bids_cfg.get("voxelops_config", {}),
                 )
             else:
-                # BidsConversionConfig object
                 return PipelineConfig(
                     name="bids_conversion",
                     enabled=bids_cfg.enabled,
                     runner="voxelops.runners.heudiconv.run_heudiconv",
                     timeout_minutes=bids_cfg.timeout_minutes,
-                    container=bids_cfg.container,
                     voxelops_config=getattr(bids_cfg, "voxelops_config", {}),
                 )
 
-        # Check session_level and subject_level pipelines
         for p in self.config.pipelines.session_level:
             if p.name == pipeline_name:
                 return p
