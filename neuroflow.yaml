@@ -69,7 +69,9 @@ pipelines:
       timeout_minutes: 480
       retries: 2
       voxelops_config:
-        docker_image: "pennlinc/qsirecon:1.1.2"
+        docker_image: "pennlinc/qsirecon:1.1.1"
+        recon_spec: "/etc/neuroflow/qsirecon_specs/qsirecon_spec.yaml"
+        fs_license: "/home/galkepler/misc/freesurfer/license.txt"
         nprocs: 4
         mem_mb: 8000
         datasets: {"atlases": "/media/storage/yalab-dev/voxelops/Schaefer2018Tian2020_atlases"}

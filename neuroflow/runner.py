@@ -22,6 +22,7 @@ class RunRequest:
     session_id: str
     dicom_path: str
     pipeline_name: str
+    force: bool = False
 
 
 @dataclass
@@ -41,10 +42,11 @@ def run_single_pipeline(
     dicom_path: str,
     pipeline_name: str,
     log_dir: str,
+    force: bool = False,
 ) -> dict:
     """Run a single pipeline in a worker process.
 
-    All arguments are plain strings for picklability.
+    All arguments are plain strings/bools for picklability.
     Returns a dict with result fields.
     """
     from neuroflow.adapters.voxelops import VoxelopsAdapter
@@ -78,6 +80,7 @@ def run_single_pipeline(
             participant_id=participant_id,
             session_id=session_id,
             dicom_path=Path(dicom_path) if dicom_path else None,
+            force=force,
         )
 
         duration = result.duration_seconds or (time.time() - start_time)
@@ -189,6 +192,7 @@ class PipelineRunner:
                     dicom_path=req.dicom_path,
                     pipeline_name=req.pipeline_name,
                     log_dir=log_dir,
+                    force=req.force,
                 )
                 future_to_request[future] = req
 
