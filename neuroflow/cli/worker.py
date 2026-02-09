@@ -41,6 +41,15 @@ def _read_pid(pid_file: Path) -> int | None:
         import json
 
         data = json.loads(pid_file.read_text())
+
+        # Handle backward compatibility: old format was just an integer
+        if isinstance(data, int):
+            # Old format: plain PID, no verification possible
+            # Clean up and return None to force recreation
+            pid_file.unlink()
+            return None
+
+        # New format: JSON with metadata
         pid = data["pid"]
         stored_create_time = data["create_time"]
         stored_cmdline = data.get("cmdline", [])

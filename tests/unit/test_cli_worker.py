@@ -401,6 +401,22 @@ class TestPIDFileOperations:
         pid = _read_pid(pid_file)
         assert pid is None
 
+    def test_read_old_format_pid(self, tmp_path):
+        """Test reading old format PID file (plain integer)."""
+        from neuroflow.cli.worker import _read_pid, _get_pid_file
+
+        state_dir = tmp_path / "state"
+        pid_file = _get_pid_file(state_dir)
+
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        # Old format: just the PID as plain text
+        pid_file.write_text("12345")
+
+        # Should return None and clean up the old format
+        pid = _read_pid(pid_file)
+        assert pid is None
+        assert not pid_file.exists()
+
     @patch("neuroflow.cli.worker.psutil.Process")
     @patch("neuroflow.cli.worker.psutil.pid_exists")
     def test_read_pid_recycled_different_create_time(
