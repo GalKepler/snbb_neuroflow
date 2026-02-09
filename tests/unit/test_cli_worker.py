@@ -36,14 +36,24 @@ execution:
 
 
 class TestWorkerStart:
+    @patch("neuroflow.cli.worker.psutil.Process")
     @patch("neuroflow.cli.worker.subprocess.Popen")
     @patch("neuroflow.cli.worker._read_pid")
-    def test_start_foreground(self, mock_read_pid, mock_popen, runner, yaml_config):
+    def test_start_foreground(self, mock_read_pid, mock_popen, mock_process_cls, runner, yaml_config):
         """Test starting worker in foreground mode."""
         mock_read_pid.return_value = None  # No existing worker
         mock_proc = Mock()
+        mock_proc.pid = 12345
         mock_proc.wait = Mock()
         mock_popen.return_value = mock_proc
+
+        # Mock psutil.Process for _write_pid
+        mock_psutil_proc = Mock()
+        mock_psutil_proc.create_time.return_value = 1234567890.0
+        mock_psutil_proc.cmdline.return_value = [
+            "python", "-m", "huey.bin.huey_consumer", "neuroflow.tasks.huey"
+        ]
+        mock_process_cls.return_value = mock_psutil_proc
 
         result = runner.invoke(
             cli,
@@ -124,16 +134,26 @@ class TestWorkerStart:
         assert result.exit_code == 1
         assert "failed to start" in result.output
 
+    @patch("neuroflow.cli.worker.psutil.Process")
     @patch("neuroflow.cli.worker.subprocess.Popen")
     @patch("neuroflow.cli.worker._read_pid")
     def test_start_with_custom_workers(
-        self, mock_read_pid, mock_popen, runner, yaml_config
+        self, mock_read_pid, mock_popen, mock_process_cls, runner, yaml_config
     ):
         """Test start with custom worker count."""
         mock_read_pid.return_value = None
         mock_proc = Mock()
+        mock_proc.pid = 12345
         mock_proc.wait = Mock()
         mock_popen.return_value = mock_proc
+
+        # Mock psutil.Process for _write_pid
+        mock_psutil_proc = Mock()
+        mock_psutil_proc.create_time.return_value = 1234567890.0
+        mock_psutil_proc.cmdline.return_value = [
+            "python", "-m", "huey.bin.huey_consumer", "neuroflow.tasks.huey"
+        ]
+        mock_process_cls.return_value = mock_psutil_proc
 
         result = runner.invoke(
             cli,
@@ -316,12 +336,29 @@ class TestWorkerRestart:
 
 
 class TestPIDFileOperations:
+    @patch("neuroflow.cli.worker.psutil.Process")
     @patch("neuroflow.cli.worker.psutil.pid_exists")
-    def test_read_write_pid(self, mock_pid_exists, tmp_path):
+    def test_read_write_pid(self, mock_pid_exists, mock_process_cls, tmp_path):
         """Test PID file read/write operations."""
         from neuroflow.cli.worker import _read_pid, _write_pid, _get_pid_file
 
-        mock_pid_exists.return_value = True  # Pretend PID exists
+        mock_pid_exists.return_value = True
+
+        # Mock process for writing
+        mock_proc_write = Mock()
+        mock_proc_write.create_time.return_value = 1234567890.0
+        mock_proc_write.cmdline.return_value = [
+            "python", "-m", "huey.bin.huey_consumer", "neuroflow.tasks.huey"
+        ]
+
+        # Mock process for reading
+        mock_proc_read = Mock()
+        mock_proc_read.create_time.return_value = 1234567890.0
+        mock_proc_read.cmdline.return_value = [
+            "python", "-m", "huey.bin.huey_consumer", "neuroflow.tasks.huey"
+        ]
+
+        mock_process_cls.side_effect = [mock_proc_write, mock_proc_read]
 
         state_dir = tmp_path / "state"
         pid_file = _get_pid_file(state_dir)
@@ -329,6 +366,13 @@ class TestPIDFileOperations:
         # Write PID
         _write_pid(pid_file, 12345)
         assert pid_file.exists()
+
+        # Verify JSON content
+        import json
+        data = json.loads(pid_file.read_text())
+        assert data["pid"] == 12345
+        assert data["create_time"] == 1234567890.0
+        assert "huey_consumer" in " ".join(data["cmdline"])
 
         # Read PID
         pid = _read_pid(pid_file)
@@ -356,3 +400,71 @@ class TestPIDFileOperations:
 
         pid = _read_pid(pid_file)
         assert pid is None
+
+    @patch("neuroflow.cli.worker.psutil.Process")
+    @patch("neuroflow.cli.worker.psutil.pid_exists")
+    def test_read_pid_recycled_different_create_time(
+        self, mock_pid_exists, mock_process_cls, tmp_path
+    ):
+        """Test reading PID file where PID was recycled (different create_time)."""
+        import json
+        from neuroflow.cli.worker import _read_pid, _get_pid_file
+
+        mock_pid_exists.return_value = True
+
+        # Write PID file manually with old create_time
+        state_dir = tmp_path / "state"
+        pid_file = _get_pid_file(state_dir)
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+
+        data = {
+            "pid": 12345,
+            "create_time": 1000000000.0,  # Old time
+            "cmdline": ["python", "-m", "huey.bin.huey_consumer", "neuroflow.tasks.huey"],
+        }
+        pid_file.write_text(json.dumps(data))
+
+        # Mock current process with different create_time
+        mock_proc = Mock()
+        mock_proc.create_time.return_value = 2000000000.0  # Different time (recycled)
+        mock_proc.cmdline.return_value = ["some", "other", "command"]
+        mock_process_cls.return_value = mock_proc
+
+        # Should return None and clean up stale PID file
+        pid = _read_pid(pid_file)
+        assert pid is None
+        assert not pid_file.exists()
+
+    @patch("neuroflow.cli.worker.psutil.Process")
+    @patch("neuroflow.cli.worker.psutil.pid_exists")
+    def test_read_pid_recycled_different_cmdline(
+        self, mock_pid_exists, mock_process_cls, tmp_path
+    ):
+        """Test reading PID file where PID was recycled (different cmdline)."""
+        import json
+        from neuroflow.cli.worker import _read_pid, _get_pid_file
+
+        mock_pid_exists.return_value = True
+
+        # Write PID file manually
+        state_dir = tmp_path / "state"
+        pid_file = _get_pid_file(state_dir)
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+
+        data = {
+            "pid": 12345,
+            "create_time": 1234567890.0,
+            "cmdline": ["python", "-m", "huey.bin.huey_consumer", "neuroflow.tasks.huey"],
+        }
+        pid_file.write_text(json.dumps(data))
+
+        # Mock current process with same create_time but different cmdline
+        mock_proc = Mock()
+        mock_proc.create_time.return_value = 1234567890.0  # Same time
+        mock_proc.cmdline.return_value = ["vim", "/etc/passwd"]  # Different process
+        mock_process_cls.return_value = mock_proc
+
+        # Should return None and clean up stale PID file
+        pid = _read_pid(pid_file)
+        assert pid is None
+        assert not pid_file.exists()

@@ -21,27 +21,82 @@ def _get_pid_file(state_dir: Path) -> Path:
 
 
 def _read_pid(pid_file: Path) -> int | None:
-    """Read PID from file, return None if file doesn't exist or is invalid."""
+    """Read PID from file and verify it's still the same process.
+
+    Returns None if:
+    - File doesn't exist
+    - File is invalid JSON
+    - Process doesn't exist
+    - Process exists but is a different process (PID was recycled)
+
+    To prevent PID recycling issues, we verify:
+    1. PID exists
+    2. Process create_time matches what we stored
+    3. Process cmdline contains 'huey_consumer' and 'neuroflow.tasks.huey'
+    """
     if not pid_file.exists():
         return None
 
     try:
-        pid = int(pid_file.read_text().strip())
+        import json
+
+        data = json.loads(pid_file.read_text())
+        pid = data["pid"]
+        stored_create_time = data["create_time"]
+        stored_cmdline = data.get("cmdline", [])
+
         # Verify process exists
-        if psutil.pid_exists(pid):
-            return pid
-        else:
+        if not psutil.pid_exists(pid):
             # Stale PID file
             pid_file.unlink()
             return None
-    except (ValueError, OSError):
+
+        # Get process and verify it's the same one
+        proc = psutil.Process(pid)
+
+        # Check create_time matches (with 1 second tolerance for rounding)
+        if abs(proc.create_time() - stored_create_time) > 1.0:
+            # PID was recycled, different process
+            pid_file.unlink()
+            return None
+
+        # Verify it's actually a huey_consumer process
+        cmdline = proc.cmdline()
+        cmdline_str = " ".join(cmdline)
+        if "huey_consumer" not in cmdline_str or "neuroflow.tasks.huey" not in cmdline_str:
+            # Different process, PID was recycled
+            pid_file.unlink()
+            return None
+
+        return pid
+
+    except (ValueError, KeyError, OSError, json.JSONDecodeError, psutil.NoSuchProcess):
+        # Invalid or corrupt PID file
+        if pid_file.exists():
+            pid_file.unlink()
         return None
 
 
 def _write_pid(pid_file: Path, pid: int) -> None:
-    """Write PID to file."""
-    pid_file.parent.mkdir(parents=True, exist_ok=True)
-    pid_file.write_text(str(pid))
+    """Write PID and process metadata to file.
+
+    Stores PID, create_time, and cmdline to prevent PID recycling issues.
+    """
+    import json
+
+    try:
+        proc = psutil.Process(pid)
+        data = {
+            "pid": pid,
+            "create_time": proc.create_time(),
+            "cmdline": proc.cmdline(),
+        }
+
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        pid_file.write_text(json.dumps(data, indent=2))
+    except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+        # Process disappeared or we can't access it
+        raise RuntimeError(f"Cannot write PID file: process {pid} not accessible") from e
 
 
 def _get_worker_info(pid: int) -> dict | None:
