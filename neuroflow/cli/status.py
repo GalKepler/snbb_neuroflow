@@ -70,8 +70,13 @@ def status(
             _show_summary(state)
 
 
-def _show_summary(state: "SessionState") -> None:
-    """Show overall summary counts."""
+def _show_summary(state: "SessionState", skip_huey_config: bool = False) -> None:
+    """Show overall summary counts.
+    
+    Args:
+        state: SessionState instance
+        skip_huey_config: If True, skip Huey configuration (already done by caller)
+    """
 
     sessions_df = state.get_session_table()
     pipeline_df = state.get_pipeline_summary()
@@ -83,7 +88,7 @@ def _show_summary(state: "SessionState") -> None:
         return
 
     # Worker status
-    _show_worker_status(state)
+    _show_worker_status(state, skip_huey_config=skip_huey_config)
     console.print()
 
     console.print(f"Sessions: {len(sessions_df)}\n")
@@ -127,16 +132,22 @@ def _show_summary(state: "SessionState") -> None:
         console.print(table)
 
 
-def _show_worker_status(state: "SessionState") -> None:
-    """Show worker and queue status."""
+def _show_worker_status(state: "SessionState", skip_huey_config: bool = False) -> None:
+    """Show worker and queue status.
+    
+    Args:
+        state: SessionState instance
+        skip_huey_config: If True, skip Huey configuration (already done by caller)
+    """
     from pathlib import Path
     from neuroflow.tasks import configure_huey, get_queue_stats
 
-    # Get queue stats - wrap configure_huey in try-except to handle read-only state dirs
+    # Get queue stats - wrap everything including configure_huey in try-except
     try:
-        # Configure Huey to use correct state directory
-        # This may fail on read-only mounts or permission errors
-        configure_huey(Path(state.state_dir))
+        if not skip_huey_config:
+            # Configure Huey to use correct state directory
+            # This may fail on read-only mounts or permission errors
+            configure_huey(Path(state.state_dir))
 
         stats = get_queue_stats()
         queued_count = stats.get("pending", 0) + stats.get("scheduled", 0)
@@ -154,7 +165,7 @@ def _show_worker_status(state: "SessionState") -> None:
 
         # Display compact status line
         queue_display = f"[cyan]{queued_count}[/cyan]" if queued_count > 0 else f"[dim]{queued_count}[/dim]"
-        console.print(f"Worker: {worker_status}  |  Queue: {queue_display} pending")
+        console.print(f"Worker: {worker_status}  |  Queue: {queue_display} queued")
 
     except Exception as e:
         # Gracefully handle failures (read-only dirs, permission errors, etc.)
@@ -201,8 +212,15 @@ def _show_sessions(state: "SessionState", output_format: str) -> None:
         console.print(table)
 
 
-def _show_pipelines(state: "SessionState", output_format: str, status_filter: str = "all") -> None:
-    """Show pipeline run details, including queued tasks."""
+def _show_pipelines(state: "SessionState", output_format: str, status_filter: str = "all", skip_huey_config: bool = False) -> None:
+    """Show pipeline run details, including queued tasks.
+    
+    Args:
+        state: SessionState instance
+        output_format: Output format (table/csv/json)
+        status_filter: Status filter (all/queued/running/completed/failed)
+        skip_huey_config: If True, skip Huey configuration (already done by caller)
+    """
     import pandas as pd
     from pathlib import Path
     from neuroflow.tasks import configure_huey, get_queue_details
@@ -212,9 +230,10 @@ def _show_pipelines(state: "SessionState", output_format: str, status_filter: st
 
     # Get queued tasks from queue - wrap in try-except to handle read-only state dirs
     try:
-        # Configure Huey to use correct state directory
-        # This may fail on read-only mounts or permission errors
-        configure_huey(Path(state.state_dir))
+        if not skip_huey_config:
+            # Configure Huey to use correct state directory
+            # This may fail on read-only mounts or permission errors
+            configure_huey(Path(state.state_dir))
 
         queue_details = get_queue_details()
         if queue_details:
@@ -227,8 +246,20 @@ def _show_pipelines(state: "SessionState", output_format: str, status_filter: st
             queue_df["end_time"] = ""
             queue_df["error_message"] = ""
 
-            # Combine with existing runs
+            # Combine with existing runs, avoiding duplicate queued/scheduled entries
             if not df.empty:
+                key_cols = ["participant_id", "session_id", "pipeline_name"]
+                # Only attempt de-duplication if all key columns are present in both DataFrames
+                if all(col in df.columns for col in key_cols) and all(col in queue_df.columns for col in key_cols):
+                    # Identify keys present in the queue and drop matching queued/scheduled state rows
+                    queued_keys = queue_df[key_cols].drop_duplicates()
+                    df = df.merge(
+                        queued_keys.assign(_nf_in_queue=True),
+                        on=key_cols,
+                        how="left",
+                    )
+                    df = df[~((df["_nf_in_queue"] == True) & df["status"].isin(["queued", "scheduled"]))]
+                    df = df.drop(columns=["_nf_in_queue"])
                 df = pd.concat([queue_df, df], ignore_index=True)
             else:
                 df = queue_df
@@ -261,7 +292,7 @@ def _show_pipelines(state: "SessionState", output_format: str, status_filter: st
         table.add_column("Pipeline")
         table.add_column("Status", style="bold")
         table.add_column("Duration")
-        table.add_column("Task ID")
+        table.add_column("Task / Exit")
 
         for _, row in df.iterrows():
             status_val = row.get("status", "")
@@ -317,7 +348,19 @@ def _watch_status(
         interval: Refresh interval in seconds
     """
     import time
+    from pathlib import Path
     from neuroflow.state import SessionState
+    from neuroflow.tasks import configure_huey
+
+    # Configure Huey once at the start (not on every refresh)
+    huey_configured = False
+    try:
+        state_dir = Path(config.execution.state_dir)
+        configure_huey(state_dir)
+        huey_configured = True
+    except Exception:
+        # If Huey configuration fails, continue without queue integration
+        pass
 
     console.print(f"[dim]Watching status (refresh every {interval}s, Ctrl+C to exit)...[/dim]\n")
 
@@ -329,13 +372,13 @@ def _watch_status(
             # Reload state
             state = SessionState(config.execution.state_dir)
 
-            # Display status
+            # Display status (skip Huey config since we did it once above)
             if sessions:
                 _show_sessions(state, "table")
             elif pipelines:
-                _show_pipelines(state, "table", status_filter)
+                _show_pipelines(state, "table", status_filter, skip_huey_config=huey_configured)
             else:
-                _show_summary(state)
+                _show_summary(state, skip_huey_config=huey_configured)
 
             # Show refresh info
             import datetime
