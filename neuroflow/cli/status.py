@@ -72,7 +72,6 @@ def status(
 
 def _show_summary(state: "SessionState") -> None:
     """Show overall summary counts."""
-    from pathlib import Path
 
     sessions_df = state.get_session_table()
     pipeline_df = state.get_pipeline_summary()
