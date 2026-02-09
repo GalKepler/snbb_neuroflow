@@ -80,7 +80,8 @@ class TestRunPipelineCommand:
 
     @patch("neuroflow.runner.PipelineRunner")
     @patch("neuroflow.state.SessionState")
-    def test_successful_run(self, mock_state_cls, mock_runner_cls, runner, yaml_config):
+    def test_successful_run_sync(self, mock_state_cls, mock_runner_cls, runner, yaml_config):
+        """Test synchronous (blocking) execution with --sync flag."""
         pending_df = pd.DataFrame([
             {
                 "participant_id": "sub-001",
@@ -106,15 +107,52 @@ class TestRunPipelineCommand:
         mock_runner_cls.return_value = mock_pipeline_runner
 
         result = runner.invoke(
-            cli, ["--config", yaml_config, "run", "pipeline", "qsiprep"]
+            cli, ["--config", yaml_config, "run", "pipeline", "qsiprep", "--sync"]
         )
         assert result.exit_code == 0
         assert "Succeeded" in result.output
+        assert "synchronously" in result.output
         mock_state.record_pipeline_run.assert_called_once()
+
+    @patch("neuroflow.state.SessionState")
+    def test_successful_run_async(self, mock_state_cls, runner, yaml_config):
+        """Test asynchronous (background queue) execution (default)."""
+        import sys
+        from unittest.mock import Mock
+
+        # Create a mock tasks module
+        mock_tasks = Mock()
+        mock_tasks.enqueue_pipeline = Mock(return_value="task-uuid-123")
+        mock_tasks.get_queue_stats = Mock(return_value={"pending": 1, "scheduled": 0})
+        sys.modules['neuroflow.tasks'] = mock_tasks
+
+        try:
+            pending_df = pd.DataFrame([
+                {
+                    "participant_id": "sub-001",
+                    "session_id": "ses-01",
+                    "dicom_path": "/data/001",
+                }
+            ])
+            mock_state = MagicMock()
+            mock_state.get_pending_sessions.return_value = pending_df
+            mock_state_cls.return_value = mock_state
+
+            result = runner.invoke(
+                cli, ["--config", yaml_config, "run", "pipeline", "qsiprep"]
+            )
+            assert result.exit_code == 0
+            assert "Enqueued" in result.output or "Enqueueing" in result.output
+            mock_tasks.enqueue_pipeline.assert_called()
+        finally:
+            # Clean up
+            if 'neuroflow.tasks' in sys.modules:
+                del sys.modules['neuroflow.tasks']
 
     @patch("neuroflow.runner.PipelineRunner")
     @patch("neuroflow.state.SessionState")
-    def test_failed_run_shows_details(self, mock_state_cls, mock_runner_cls, runner, yaml_config):
+    def test_failed_run_shows_details_sync(self, mock_state_cls, mock_runner_cls, runner, yaml_config):
+        """Test failed run with --sync flag shows error details."""
         pending_df = pd.DataFrame([
             {
                 "participant_id": "sub-001",
@@ -143,7 +181,7 @@ class TestRunPipelineCommand:
         mock_runner_cls.return_value = mock_pipeline_runner
 
         result = runner.invoke(
-            cli, ["--config", yaml_config, "run", "pipeline", "qsiprep"]
+            cli, ["--config", yaml_config, "run", "pipeline", "qsiprep", "--sync"]
         )
         assert result.exit_code == 0
         assert "Failed" in result.output or "failed" in result.output
@@ -151,9 +189,10 @@ class TestRunPipelineCommand:
 
     @patch("neuroflow.runner.PipelineRunner")
     @patch("neuroflow.state.SessionState")
-    def test_error_without_pipeline_result(
+    def test_error_without_pipeline_result_sync(
         self, mock_state_cls, mock_runner_cls, runner, yaml_config
     ):
+        """Test error handling with --sync flag."""
         pending_df = pd.DataFrame([
             {
                 "participant_id": "sub-001",
@@ -177,7 +216,7 @@ class TestRunPipelineCommand:
         mock_runner_cls.return_value = mock_pipeline_runner
 
         result = runner.invoke(
-            cli, ["--config", yaml_config, "run", "pipeline", "qsiprep"]
+            cli, ["--config", yaml_config, "run", "pipeline", "qsiprep", "--sync"]
         )
         assert result.exit_code == 0
         mock_state.record_pipeline_run.assert_called_once()
