@@ -33,9 +33,11 @@ execution:
 
 
 class TestStatusSummary:
+    @patch("neuroflow.cli.status._show_worker_status")
     @patch("neuroflow.state.SessionState")
-    def test_empty_state(self, mock_state_cls, runner, yaml_config):
+    def test_empty_state(self, mock_state_cls, mock_worker_status, runner, yaml_config, tmp_path):
         mock_state = MagicMock()
+        mock_state.state_dir = str(tmp_path / 'state')
         mock_state.get_session_table.return_value = pd.DataFrame(
             columns=["participant_id", "session_id", "status"]
         )
@@ -48,14 +50,16 @@ class TestStatusSummary:
         assert result.exit_code == 0
         assert "No data yet" in result.output
 
+    @patch("neuroflow.cli.status._show_worker_status")
     @patch("neuroflow.state.SessionState")
-    def test_summary_with_sessions(self, mock_state_cls, runner, yaml_config):
+    def test_summary_with_sessions(self, mock_state_cls, mock_worker_status, runner, yaml_config, tmp_path):
         sessions_df = pd.DataFrame([
             {"participant_id": "sub-001", "session_id": "ses-01", "status": "validated"},
             {"participant_id": "sub-002", "session_id": "ses-01", "status": "discovered"},
             {"participant_id": "sub-003", "session_id": "ses-01", "status": "invalid"},
         ])
         mock_state = MagicMock()
+        mock_state.state_dir = str(tmp_path / 'state')
         mock_state.get_session_table.return_value = sessions_df
         mock_state.get_pipeline_summary.return_value = pd.DataFrame(
             columns=["pipeline_name", "status", "count"]
@@ -68,8 +72,9 @@ class TestStatusSummary:
         assert "validated" in result.output
         assert "discovered" in result.output
 
+    @patch("neuroflow.cli.status._show_worker_status")
     @patch("neuroflow.state.SessionState")
-    def test_summary_with_pipeline_runs(self, mock_state_cls, runner, yaml_config):
+    def test_summary_with_pipeline_runs(self, mock_state_cls, mock_worker_status, runner, yaml_config, tmp_path):
         sessions_df = pd.DataFrame([
             {"participant_id": "sub-001", "session_id": "ses-01", "status": "validated"},
         ])
@@ -78,6 +83,7 @@ class TestStatusSummary:
             {"pipeline_name": "qsiprep", "status": "failed", "count": 2},
         ])
         mock_state = MagicMock()
+        mock_state.state_dir = str(tmp_path / 'state')
         mock_state.get_session_table.return_value = sessions_df
         mock_state.get_pipeline_summary.return_value = pipeline_df
         mock_state_cls.return_value = mock_state
@@ -170,8 +176,11 @@ class TestStatusSessions:
 
 
 class TestStatusPipelines:
+    @patch("neuroflow.tasks.get_queue_details")
+    @patch("neuroflow.tasks.configure_huey")
     @patch("neuroflow.state.SessionState")
-    def test_pipelines_table_format(self, mock_state_cls, runner, yaml_config):
+    def test_pipelines_table_format(self, mock_state_cls, mock_configure_huey, mock_queue_details, runner, yaml_config, tmp_path):
+        mock_queue_details.return_value = []
         runs_df = pd.DataFrame([
             {
                 "participant_id": "sub-001",
@@ -183,6 +192,7 @@ class TestStatusPipelines:
             }
         ])
         mock_state = MagicMock()
+        mock_state.state_dir = str(tmp_path / 'state')
         mock_state.load_pipeline_runs.return_value = runs_df
         mock_state_cls.return_value = mock_state
 
@@ -193,8 +203,11 @@ class TestStatusPipelines:
         assert "qsiprep" in result.output
         assert "120.5s" in result.output
 
+    @patch("neuroflow.tasks.get_queue_details")
+    @patch("neuroflow.tasks.configure_huey")
     @patch("neuroflow.state.SessionState")
-    def test_pipelines_csv_format(self, mock_state_cls, runner, yaml_config):
+    def test_pipelines_csv_format(self, mock_state_cls, mock_configure_huey, mock_queue_details, runner, yaml_config, tmp_path):
+        mock_queue_details.return_value = []
         runs_df = pd.DataFrame([
             {
                 "participant_id": "sub-001",
@@ -206,6 +219,7 @@ class TestStatusPipelines:
             }
         ])
         mock_state = MagicMock()
+        mock_state.state_dir = str(tmp_path / 'state')
         mock_state.load_pipeline_runs.return_value = runs_df
         mock_state_cls.return_value = mock_state
 
@@ -215,8 +229,11 @@ class TestStatusPipelines:
         assert result.exit_code == 0
         assert "pipeline_name" in result.output
 
+    @patch("neuroflow.tasks.get_queue_details")
+    @patch("neuroflow.tasks.configure_huey")
     @patch("neuroflow.state.SessionState")
-    def test_pipelines_json_format(self, mock_state_cls, runner, yaml_config):
+    def test_pipelines_json_format(self, mock_state_cls, mock_configure_huey, mock_queue_details, runner, yaml_config, tmp_path):
+        mock_queue_details.return_value = []
         runs_df = pd.DataFrame([
             {
                 "participant_id": "sub-001",
@@ -228,6 +245,7 @@ class TestStatusPipelines:
             }
         ])
         mock_state = MagicMock()
+        mock_state.state_dir = str(tmp_path / 'state')
         mock_state.load_pipeline_runs.return_value = runs_df
         mock_state_cls.return_value = mock_state
 
@@ -237,9 +255,13 @@ class TestStatusPipelines:
         assert result.exit_code == 0
         assert "qsiprep" in result.output
 
+    @patch("neuroflow.tasks.get_queue_details")
+    @patch("neuroflow.tasks.configure_huey")
     @patch("neuroflow.state.SessionState")
-    def test_pipelines_empty(self, mock_state_cls, runner, yaml_config):
+    def test_pipelines_empty(self, mock_state_cls, mock_configure_huey, mock_queue_details, runner, yaml_config, tmp_path):
+        mock_queue_details.return_value = []
         mock_state = MagicMock()
+        mock_state.state_dir = str(tmp_path / 'state')
         mock_state.load_pipeline_runs.return_value = pd.DataFrame(
             columns=["participant_id", "session_id", "pipeline_name", "status"]
         )
@@ -251,8 +273,11 @@ class TestStatusPipelines:
         assert result.exit_code == 0
         assert "No pipeline runs found" in result.output
 
+    @patch("neuroflow.tasks.get_queue_details")
+    @patch("neuroflow.tasks.configure_huey")
     @patch("neuroflow.state.SessionState")
-    def test_pipelines_nan_duration(self, mock_state_cls, runner, yaml_config):
+    def test_pipelines_nan_duration(self, mock_state_cls, mock_configure_huey, mock_queue_details, runner, yaml_config, tmp_path):
+        mock_queue_details.return_value = []
         runs_df = pd.DataFrame([
             {
                 "participant_id": "sub-001",
@@ -264,6 +289,7 @@ class TestStatusPipelines:
             }
         ])
         mock_state = MagicMock()
+        mock_state.state_dir = str(tmp_path / 'state')
         mock_state.load_pipeline_runs.return_value = runs_df
         mock_state_cls.return_value = mock_state
 
@@ -273,8 +299,11 @@ class TestStatusPipelines:
         assert result.exit_code == 0
         assert "qsiprep" in result.output
 
+    @patch("neuroflow.tasks.get_queue_details")
+    @patch("neuroflow.tasks.configure_huey")
     @patch("neuroflow.state.SessionState")
-    def test_pipelines_missing_duration(self, mock_state_cls, runner, yaml_config):
+    def test_pipelines_missing_duration(self, mock_state_cls, mock_configure_huey, mock_queue_details, runner, yaml_config, tmp_path):
+        mock_queue_details.return_value = []
         runs_df = pd.DataFrame([
             {
                 "participant_id": "sub-001",
@@ -286,6 +315,7 @@ class TestStatusPipelines:
             }
         ])
         mock_state = MagicMock()
+        mock_state.state_dir = str(tmp_path / 'state')
         mock_state.load_pipeline_runs.return_value = runs_df
         mock_state_cls.return_value = mock_state
 
@@ -456,6 +486,57 @@ class TestStatusPipelinesPhase4:
         )
         assert result.exit_code == 0
         assert "No pipeline runs with status 'queued'" in result.output
+
+    @patch("neuroflow.tasks.configure_huey")
+    @patch("neuroflow.tasks.get_queue_details")
+    @patch("neuroflow.state.SessionState")
+    def test_pipelines_deduplicates_queued_tasks(
+        self, mock_state_cls, mock_get_queue_details, mock_configure_huey, runner, yaml_config
+    ):
+        """Test that duplicate queued entries (state + queue) are deduplicated."""
+        # Mock state with a queued entry (without task_id)
+        runs_df = pd.DataFrame([
+            {
+                "participant_id": "sub-001",
+                "session_id": "ses-01",
+                "pipeline_name": "qsiprep",
+                "status": "queued",
+                "duration_seconds": "",
+                "exit_code": "",
+            },
+            {
+                "participant_id": "sub-002",
+                "session_id": "ses-01",
+                "pipeline_name": "fmriprep",
+                "status": "completed",
+                "duration_seconds": "100.0",
+                "exit_code": "0",
+            }
+        ])
+        mock_state = MagicMock()
+        mock_state.load_pipeline_runs.return_value = runs_df
+        mock_state.state_dir = "/tmp/state"
+        mock_state_cls.return_value = mock_state
+
+        # Mock queue with the same queued task (with task_id)
+        mock_get_queue_details.return_value = [
+            {
+                "task_id": "abc12345",
+                "pipeline_name": "qsiprep",
+                "participant_id": "sub-001",
+                "session_id": "ses-01",
+                "status": "queued",
+            }
+        ]
+
+        result = runner.invoke(
+            cli, ["--config", yaml_config, "status", "--pipelines"]
+        )
+        assert result.exit_code == 0
+        # Should show task ID (first 8 chars from queue) not duplicate
+        assert "abc1234" in result.output  # First 8 chars of task ID
+        # Count occurrences - sub-001 should appear only once
+        assert result.output.count("sub-001") == 1
 
 
 class TestStatusWorkerStatusPhase4:
