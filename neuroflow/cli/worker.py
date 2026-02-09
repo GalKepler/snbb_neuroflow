@@ -353,8 +353,6 @@ def status(ctx: click.Context) -> None:
     Examples:
         neuroflow worker status
     """
-    from neuroflow.tasks import get_queue_stats
-
     config = ctx.obj["config"]
     state_dir = Path(config.execution.state_dir)
     pid_file = _get_pid_file(state_dir)
@@ -402,8 +400,11 @@ def status(ctx: click.Context) -> None:
     # Queue stats
     console.print("\n[cyan]Queue Statistics:[/cyan]")
 
-    # Set environment variable for queue stats
-    os.environ["NEUROFLOW_STATE_DIR"] = str(state_dir)
+    # Configure Huey to use correct state directory BEFORE importing get_queue_stats
+    # This ensures the Huey instance reads from the configured DB, not default .neuroflow
+    from neuroflow.tasks import configure_huey, get_queue_stats
+
+    configure_huey(state_dir)
 
     try:
         stats = get_queue_stats()
