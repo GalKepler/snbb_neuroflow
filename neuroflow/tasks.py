@@ -414,36 +414,53 @@ def get_queue_details() -> list[dict]:
             pipeline_name = None
             participant_id = None
             session_id = None
+    def extract_task_metadata(task, status: str) -> dict | None:
+        """Extract common metadata from a Huey task.
 
-            task_kwargs = getattr(task, "kwargs", None)
-            if isinstance(task_kwargs, dict):
-                pipeline_name = task_kwargs.get("pipeline_name")
-                participant_id = task_kwargs.get("participant_id")
-                session_id = task_kwargs.get("session_id")
+        Prefer keyword arguments (task.kwargs) but fall back to positional
+        arguments (task.args) for backwards compatibility.
+        """
+        try:
+            # First, try to read from keyword arguments (newer tasks)
+            kwargs = getattr(task, "kwargs", {}) or {}
+            pipeline_name = kwargs.get("pipeline_name")
+            participant_id = kwargs.get("participant_id")
+            session_id = kwargs.get("session_id")
 
-            if (pipeline_name is None or participant_id is None or session_id is None):
-                task_args = getattr(task, "args", None)
-                if isinstance(task_args, (list, tuple)) and len(task_args) >= 5:
-                    # Args are: (config_path, participant_id, session_id, dicom_path,
-                    #            pipeline_name, log_dir, force)
-                    if participant_id is None:
-                        participant_id = task_args[1]
-                    if session_id is None:
-                        session_id = task_args[2]
-                    if pipeline_name is None:
-                        pipeline_name = task_args[4]
-
+            # If any of the required fields are missing in kwargs, fall back
+            # to positional args as used by older callers.
             if pipeline_name is None or participant_id is None or session_id is None:
-                continue
+                args = getattr(task, "args", ()) or ()
+                # Args are: (config_path, participant_id, session_id, dicom_path,
+                #            pipeline_name, log_dir, force, ...)
+                if len(args) >= 5:
+                    participant_id = participant_id or args[1]
+                    session_id = session_id or args[2]
+                    pipeline_name = pipeline_name or args[4]
+                else:
+                    return None
 
-            tasks.append({
+            return {
                 "task_id": task.id,
                 "pipeline_name": pipeline_name,
                 "participant_id": participant_id,
                 "session_id": session_id,
-                "status": "scheduled",
-            })
-        except AttributeError:
-            continue
+                "status": status,
+            }
+        except (IndexError, AttributeError, TypeError):
+            # Skip tasks that don't have the expected structure
+            return None
+
+    # Get pending tasks (ready to run)
+    for task in huey.pending():
+        meta = extract_task_metadata(task, status="queued")
+        if meta is not None:
+            tasks.append(meta)
+
+    # Get scheduled tasks (scheduled for future execution)
+    for task in huey.scheduled():
+        meta = extract_task_metadata(task, status="scheduled")
+        if meta is not None:
+            tasks.append(meta)
 
     return tasks
