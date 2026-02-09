@@ -390,3 +390,148 @@ def test_multiple_tasks_same_session(configured_huey, mock_run_single_pipeline, 
     pipelines = set(session_runs["pipeline_name"])
     assert "pipeline1" in pipelines
     assert "pipeline2" in pipelines
+
+
+class TestGetQueueDetails:
+    """Tests for get_queue_details function."""
+
+    @patch("neuroflow.tasks.huey")
+    def test_get_queue_details_pending(self, mock_huey):
+        """Test getting details of pending tasks."""
+        from neuroflow.tasks import get_queue_details
+
+        # Mock pending task
+        mock_task = MagicMock()
+        mock_task.id = "task-123"
+        mock_task.args = (
+            "/config.yaml",
+            "sub-001",
+            "ses-01",
+            "/data/dicom",
+            "qsiprep",
+            "/logs",
+            False,
+        )
+        mock_huey.pending.return_value = [mock_task]
+        mock_huey.scheduled.return_value = []
+
+        details = get_queue_details()
+
+        assert len(details) == 1
+        assert details[0]["task_id"] == "task-123"
+        assert details[0]["pipeline_name"] == "qsiprep"
+        assert details[0]["participant_id"] == "sub-001"
+        assert details[0]["session_id"] == "ses-01"
+        assert details[0]["status"] == "queued"
+
+    @patch("neuroflow.tasks.huey")
+    def test_get_queue_details_scheduled(self, mock_huey):
+        """Test getting details of scheduled tasks."""
+        from neuroflow.tasks import get_queue_details
+
+        # Mock scheduled task
+        mock_task = MagicMock()
+        mock_task.id = "task-456"
+        mock_task.args = (
+            "/config.yaml",
+            "sub-002",
+            "ses-02",
+            "/data/dicom",
+            "fmriprep",
+            "/logs",
+            False,
+        )
+        mock_huey.pending.return_value = []
+        mock_huey.scheduled.return_value = [mock_task]
+
+        details = get_queue_details()
+
+        assert len(details) == 1
+        assert details[0]["task_id"] == "task-456"
+        assert details[0]["pipeline_name"] == "fmriprep"
+        assert details[0]["status"] == "scheduled"
+
+    @patch("neuroflow.tasks.huey")
+    def test_get_queue_details_mixed(self, mock_huey):
+        """Test getting details with both pending and scheduled tasks."""
+        from neuroflow.tasks import get_queue_details
+
+        # Mock pending task
+        mock_pending = MagicMock()
+        mock_pending.id = "task-pending"
+        mock_pending.args = (
+            "/config.yaml",
+            "sub-001",
+            "ses-01",
+            "/data",
+            "qsiprep",
+            "/logs",
+            False,
+        )
+
+        # Mock scheduled task
+        mock_scheduled = MagicMock()
+        mock_scheduled.id = "task-scheduled"
+        mock_scheduled.args = (
+            "/config.yaml",
+            "sub-002",
+            "ses-02",
+            "/data",
+            "fmriprep",
+            "/logs",
+            False,
+        )
+
+        mock_huey.pending.return_value = [mock_pending]
+        mock_huey.scheduled.return_value = [mock_scheduled]
+
+        details = get_queue_details()
+
+        assert len(details) == 2
+        assert details[0]["status"] == "queued"
+        assert details[1]["status"] == "scheduled"
+
+    @patch("neuroflow.tasks.huey")
+    def test_get_queue_details_empty(self, mock_huey):
+        """Test getting details when queue is empty."""
+        from neuroflow.tasks import get_queue_details
+
+        mock_huey.pending.return_value = []
+        mock_huey.scheduled.return_value = []
+
+        details = get_queue_details()
+
+        assert len(details) == 0
+        assert details == []
+
+    @patch("neuroflow.tasks.huey")
+    def test_get_queue_details_invalid_task(self, mock_huey):
+        """Test that invalid tasks are skipped gracefully."""
+        from neuroflow.tasks import get_queue_details
+
+        # Mock task with insufficient args
+        mock_bad_task = MagicMock()
+        mock_bad_task.id = "task-bad"
+        mock_bad_task.args = ("short", "args")  # Not enough args
+
+        # Mock good task
+        mock_good_task = MagicMock()
+        mock_good_task.id = "task-good"
+        mock_good_task.args = (
+            "/config.yaml",
+            "sub-001",
+            "ses-01",
+            "/data",
+            "qsiprep",
+            "/logs",
+            False,
+        )
+
+        mock_huey.pending.return_value = [mock_bad_task, mock_good_task]
+        mock_huey.scheduled.return_value = []
+
+        details = get_queue_details()
+
+        # Should only get the good task
+        assert len(details) == 1
+        assert details[0]["task_id"] == "task-good"

@@ -341,3 +341,60 @@ def get_queue_stats() -> dict:
         "pending": pending,
         "scheduled": scheduled,
     }
+
+
+def get_queue_details() -> list[dict]:
+    """Get detailed information about tasks in the queue.
+
+    Returns a list of queued tasks with their metadata, including task IDs,
+    pipeline names, participant/session IDs, and queue status.
+
+    Returns:
+        List of dictionaries, each containing:
+        - task_id: Task ID (string UUID)
+        - pipeline_name: Name of the pipeline
+        - participant_id: Participant identifier
+        - session_id: Session identifier
+        - status: "queued" for pending tasks, "scheduled" for scheduled tasks
+
+    Example:
+        >>> details = get_queue_details()
+        >>> for task in details:
+        ...     print(f"{task['task_id']}: {task['pipeline_name']} "
+        ...           f"{task['participant_id']}/{task['session_id']}")
+    """
+    tasks = []
+
+    # Get pending tasks (ready to run)
+    for task in huey.pending():
+        try:
+            # Extract metadata from task args
+            # Args are: (config_path, participant_id, session_id, dicom_path,
+            #            pipeline_name, log_dir, force)
+            if len(task.args) >= 5:
+                tasks.append({
+                    "task_id": task.id,
+                    "pipeline_name": task.args[4],  # pipeline_name
+                    "participant_id": task.args[1],  # participant_id
+                    "session_id": task.args[2],  # session_id
+                    "status": "queued",
+                })
+        except (IndexError, AttributeError):
+            # Skip tasks that don't have expected structure
+            continue
+
+    # Get scheduled tasks (scheduled for future execution)
+    for task in huey.scheduled():
+        try:
+            if len(task.args) >= 5:
+                tasks.append({
+                    "task_id": task.id,
+                    "pipeline_name": task.args[4],
+                    "participant_id": task.args[1],
+                    "session_id": task.args[2],
+                    "status": "scheduled",
+                })
+        except (IndexError, AttributeError):
+            continue
+
+    return tasks
