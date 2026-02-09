@@ -1,9 +1,12 @@
 # Background Queue with Huey
 
-> **Status:** Phase 1 Implemented (v0.2.0)
+> **Status:** Phases 1 & 2 Implemented - CLI Integration Complete
 > **Date:** 2026-02-09
+> **Phases:** 1 (Infrastructure) + 2 (CLI Integration)
 
 Neuroflow uses [Huey](https://github.com/coleifer/huey) with a SQLite backend for background pipeline execution. This allows pipelines to run in the background without blocking the terminal, with persistent queue state that survives crashes.
+
+**As of Phase 2:** The CLI (`neuroflow run pipeline`) now enqueues tasks to the background queue by default. Use `--sync` for the old blocking behavior.
 
 ## Quick Start
 
@@ -33,7 +36,19 @@ huey_consumer neuroflow.tasks.huey -w 4 -k process -l logs/huey.log
 
 For production, run the consumer as a systemd service (see [Production Deployment](#production-deployment) below).
 
-### 3. Enqueue Tasks
+### 3. Run Pipelines
+
+**Option A: CLI (Phase 2 - Recommended)**
+
+```bash
+# Async mode (default) - enqueues and returns immediately
+neuroflow run pipeline qsiprep
+
+# Sync mode - blocks terminal until complete (useful for debugging)
+neuroflow run pipeline qsiprep --sync
+```
+
+**Option B: Python API (Phase 1)**
 
 ```python
 from neuroflow.tasks import enqueue_pipeline
@@ -52,7 +67,7 @@ task_id = enqueue_pipeline(
 print(f"Enqueued task: {task_id}")
 ```
 
-The function returns immediately and the task executes in the background consumer.
+Both methods return immediately and tasks execute in the background consumer.
 
 ### 4. Monitor Tasks
 
