@@ -31,5 +31,8 @@ logs/
 *.db
 *.sqlite3
 
+# Neuroflow state directory
+.neuroflow/
+
 # OS
 .DS_Store

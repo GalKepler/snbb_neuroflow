@@ -71,3 +71,45 @@ def config(tmp_paths: dict[str, Path]) -> NeuroflowConfig:
         ),
         logging=LoggingConfig(level="DEBUG", format="console"),
     )
+
+
+@pytest.fixture
+def sample_config_path(config: NeuroflowConfig, tmp_path: Path) -> Path:
+    """Create a YAML config file for testing."""
+    import yaml
+
+    config_path = tmp_path / "test_config.yaml"
+
+    # Convert config to dict for YAML serialization
+    config_dict = {
+        "paths": {
+            "dicom_incoming": str(config.paths.dicom_incoming),
+            "bids_root": str(config.paths.bids_root),
+            "derivatives": str(config.paths.derivatives),
+            "work_dir": str(config.paths.work_dir),
+            "log_dir": str(config.paths.log_dir),
+        },
+        "execution": {
+            "max_workers": config.execution.max_workers,
+            "state_dir": str(config.execution.state_dir),
+            "log_per_session": config.execution.log_per_session,
+        },
+        "dataset": {
+            "name": config.dataset.name,
+            "session_ids": config.dataset.session_ids,
+            "dicom_participant_first": config.dataset.dicom_participant_first,
+        },
+        "protocol": {
+            "stability_wait_minutes": config.protocol.stability_wait_minutes,
+            "bids_conversion_min_files": config.protocol.bids_conversion_min_files,
+        },
+        "logging": {
+            "level": config.logging.level,
+            "format": config.logging.format,
+        },
+    }
+
+    with open(config_path, "w") as f:
+        yaml.dump(config_dict, f)
+
+    return config_path
