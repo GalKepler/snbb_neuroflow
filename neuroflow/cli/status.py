@@ -133,11 +133,12 @@ def _show_worker_status(state: "SessionState") -> None:
     from pathlib import Path
     from neuroflow.tasks import configure_huey, get_queue_stats
 
-    # Configure Huey to use correct state directory
-    configure_huey(Path(state.state_dir))
-
-    # Get queue stats
+    # Get queue stats - wrap configure_huey in try-except to handle read-only state dirs
     try:
+        # Configure Huey to use correct state directory
+        # This may fail on read-only mounts or permission errors
+        configure_huey(Path(state.state_dir))
+
         stats = get_queue_stats()
         queued_count = stats.get("pending", 0) + stats.get("scheduled", 0)
 
@@ -157,6 +158,7 @@ def _show_worker_status(state: "SessionState") -> None:
         console.print(f"Worker: {worker_status}  |  Queue: {queue_display} pending")
 
     except Exception as e:
+        # Gracefully handle failures (read-only dirs, permission errors, etc.)
         console.print(f"[dim]Worker status: unavailable ({e})[/dim]")
 
 
@@ -206,14 +208,15 @@ def _show_pipelines(state: "SessionState", output_format: str, status_filter: st
     from pathlib import Path
     from neuroflow.tasks import configure_huey, get_queue_details
 
-    # Configure Huey to use correct state directory
-    configure_huey(Path(state.state_dir))
-
     # Get completed/failed runs from state
     df = state.load_pipeline_runs()
 
-    # Get queued tasks from queue
+    # Get queued tasks from queue - wrap in try-except to handle read-only state dirs
     try:
+        # Configure Huey to use correct state directory
+        # This may fail on read-only mounts or permission errors
+        configure_huey(Path(state.state_dir))
+
         queue_details = get_queue_details()
         if queue_details:
             # Convert queue details to DataFrame
@@ -231,7 +234,9 @@ def _show_pipelines(state: "SessionState", output_format: str, status_filter: st
             else:
                 df = queue_df
     except Exception as e:
-        console.print(f"[dim]Warning: Could not fetch queue details: {e}[/dim]")
+        # Gracefully skip queue details if configure_huey fails (read-only dirs, etc.)
+        # Status command should remain read-only and work even without queue access
+        pass  # Silently skip queue details, continue with state data only
 
     if df.empty:
         console.print("[yellow]No pipeline runs found.[/yellow]")

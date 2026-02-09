@@ -519,3 +519,71 @@ class TestStatusWorkerStatusPhase4:
         assert result.exit_code == 0
         assert "Worker:" in result.output
         assert "Not running" in result.output
+
+
+class TestStatusReadOnlyStateDir:
+    """Tests for graceful handling of read-only state directories."""
+
+    @patch("neuroflow.tasks.configure_huey")
+    @patch("neuroflow.state.SessionState")
+    def test_pipelines_with_readonly_state_dir(
+        self, mock_state_cls, mock_configure_huey, runner, yaml_config
+    ):
+        """Test that pipelines display works even if state dir is read-only."""
+        # Mock completed runs
+        runs_df = pd.DataFrame([
+            {
+                "participant_id": "sub-001",
+                "session_id": "ses-01",
+                "pipeline_name": "qsiprep",
+                "status": "completed",
+                "duration_seconds": "120.5",
+                "exit_code": "0",
+            }
+        ])
+        mock_state = MagicMock()
+        mock_state.load_pipeline_runs.return_value = runs_df
+        mock_state.state_dir = "/tmp/state"
+        mock_state_cls.return_value = mock_state
+
+        # Simulate PermissionError when configure_huey tries to mkdir
+        mock_configure_huey.side_effect = PermissionError("Read-only file system")
+
+        result = runner.invoke(
+            cli, ["--config", yaml_config, "status", "--pipelines"]
+        )
+        
+        # Should succeed and show completed runs, just skip queue info
+        assert result.exit_code == 0
+        assert "qsiprep" in result.output
+        assert "completed" in result.output
+        # Should NOT crash with PermissionError
+
+    @patch("neuroflow.tasks.configure_huey")
+    @patch("neuroflow.tasks.get_queue_stats")
+    @patch("neuroflow.state.SessionState")
+    def test_summary_with_readonly_state_dir(
+        self, mock_state_cls, mock_get_queue_stats, mock_configure_huey, runner, yaml_config
+    ):
+        """Test that summary works even if state dir is read-only."""
+        sessions_df = pd.DataFrame([
+            {"participant_id": "sub-001", "session_id": "ses-01", "status": "validated"},
+        ])
+        mock_state = MagicMock()
+        mock_state.get_session_table.return_value = sessions_df
+        mock_state.get_pipeline_summary.return_value = pd.DataFrame(
+            columns=["pipeline_name", "status", "count"]
+        )
+        mock_state.state_dir = "/tmp/state"
+        mock_state_cls.return_value = mock_state
+
+        # Simulate PermissionError when configure_huey tries to mkdir
+        mock_configure_huey.side_effect = PermissionError("Read-only file system")
+
+        result = runner.invoke(cli, ["--config", yaml_config, "status"])
+        
+        # Should succeed and show sessions, just skip worker status
+        assert result.exit_code == 0
+        assert "Sessions: 1" in result.output
+        assert "Worker status: unavailable" in result.output
+        # Should NOT crash with PermissionError
