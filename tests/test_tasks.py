@@ -403,6 +403,7 @@ class TestGetQueueDetails:
         # Mock pending task
         mock_task = MagicMock()
         mock_task.id = "task-123"
+        mock_task.kwargs = {}  # Empty kwargs dict
         mock_task.args = (
             "/config.yaml",
             "sub-001",
@@ -432,6 +433,7 @@ class TestGetQueueDetails:
         # Mock scheduled task
         mock_task = MagicMock()
         mock_task.id = "task-456"
+        mock_task.kwargs = {}  # Empty kwargs dict
         mock_task.args = (
             "/config.yaml",
             "sub-002",
@@ -459,6 +461,7 @@ class TestGetQueueDetails:
         # Mock pending task
         mock_pending = MagicMock()
         mock_pending.id = "task-pending"
+        mock_pending.kwargs = {}  # Empty kwargs dict
         mock_pending.args = (
             "/config.yaml",
             "sub-001",
@@ -472,6 +475,7 @@ class TestGetQueueDetails:
         # Mock scheduled task
         mock_scheduled = MagicMock()
         mock_scheduled.id = "task-scheduled"
+        mock_scheduled.kwargs = {}  # Empty kwargs dict
         mock_scheduled.args = (
             "/config.yaml",
             "sub-002",
@@ -512,11 +516,13 @@ class TestGetQueueDetails:
         # Mock task with insufficient args
         mock_bad_task = MagicMock()
         mock_bad_task.id = "task-bad"
+        mock_bad_task.kwargs = {}  # Empty kwargs dict
         mock_bad_task.args = ("short", "args")  # Not enough args
 
         # Mock good task
         mock_good_task = MagicMock()
         mock_good_task.id = "task-good"
+        mock_good_task.kwargs = {}  # Empty kwargs dict
         mock_good_task.args = (
             "/config.yaml",
             "sub-001",
@@ -535,3 +541,123 @@ class TestGetQueueDetails:
         # Should only get the good task
         assert len(details) == 1
         assert details[0]["task_id"] == "task-good"
+
+
+class TestPriorityEnqueueing:
+    """Tests for task priority support."""
+
+    @patch("neuroflow.tasks.run_pipeline_task")
+    @patch("neuroflow.state.SessionState")
+    @patch("neuroflow.config.NeuroflowConfig.from_yaml")
+    def test_enqueue_with_default_priority(
+        self, mock_config_cls, mock_state_cls, mock_task
+    ):
+        """Test enqueueing with default priority (0)."""
+        from neuroflow.tasks import enqueue_pipeline
+
+        # Mock task result
+        mock_result = MagicMock()
+        mock_result.id = "task-123"
+        mock_task.schedule.return_value = mock_result
+
+        # Mock config and state
+        mock_config = MagicMock()
+        mock_config.execution.state_dir = "/tmp/state"
+        mock_config_cls.return_value = mock_config
+
+        mock_state = MagicMock()
+        mock_state_cls.return_value = mock_state
+
+        # Enqueue with default priority
+        task_id = enqueue_pipeline(
+            config_path="/config.yaml",
+            participant_id="sub-001",
+            session_id="ses-01",
+            dicom_path="/data",
+            pipeline_name="qsiprep",
+            log_dir="/logs",
+        )
+
+        # Verify task was scheduled with priority=0
+        mock_task.schedule.assert_called_once()
+        call_kwargs = mock_task.schedule.call_args.kwargs
+        assert call_kwargs["priority"] == 0
+        assert task_id == "task-123"
+
+    @patch("neuroflow.tasks.run_pipeline_task")
+    @patch("neuroflow.state.SessionState")
+    @patch("neuroflow.config.NeuroflowConfig.from_yaml")
+    def test_enqueue_with_high_priority(
+        self, mock_config_cls, mock_state_cls, mock_task
+    ):
+        """Test enqueueing with high priority (10)."""
+        from neuroflow.tasks import enqueue_pipeline
+
+        # Mock task result
+        mock_result = MagicMock()
+        mock_result.id = "task-456"
+        mock_task.schedule.return_value = mock_result
+
+        # Mock config and state
+        mock_config = MagicMock()
+        mock_config.execution.state_dir = "/tmp/state"
+        mock_config_cls.return_value = mock_config
+
+        mock_state = MagicMock()
+        mock_state_cls.return_value = mock_state
+
+        # Enqueue with high priority
+        task_id = enqueue_pipeline(
+            config_path="/config.yaml",
+            participant_id="sub-002",
+            session_id="ses-02",
+            dicom_path="/data",
+            pipeline_name="fmriprep",
+            log_dir="/logs",
+            priority=10,
+        )
+
+        # Verify task was scheduled with priority=10
+        mock_task.schedule.assert_called_once()
+        call_kwargs = mock_task.schedule.call_args.kwargs
+        assert call_kwargs["priority"] == 10
+        assert task_id == "task-456"
+
+    @patch("neuroflow.tasks.run_pipeline_task")
+    @patch("neuroflow.state.SessionState")
+    @patch("neuroflow.config.NeuroflowConfig.from_yaml")
+    def test_enqueue_with_low_priority(
+        self, mock_config_cls, mock_state_cls, mock_task
+    ):
+        """Test enqueueing with low priority (-10)."""
+        from neuroflow.tasks import enqueue_pipeline
+
+        # Mock task result
+        mock_result = MagicMock()
+        mock_result.id = "task-789"
+        mock_task.schedule.return_value = mock_result
+
+        # Mock config and state
+        mock_config = MagicMock()
+        mock_config.execution.state_dir = "/tmp/state"
+        mock_config_cls.return_value = mock_config
+
+        mock_state = MagicMock()
+        mock_state_cls.return_value = mock_state
+
+        # Enqueue with low priority
+        task_id = enqueue_pipeline(
+            config_path="/config.yaml",
+            participant_id="sub-003",
+            session_id="ses-03",
+            dicom_path="/data",
+            pipeline_name="mriqc",
+            log_dir="/logs",
+            priority=-10,
+        )
+
+        # Verify task was scheduled with priority=-10
+        mock_task.schedule.assert_called_once()
+        call_kwargs = mock_task.schedule.call_args.kwargs
+        assert call_kwargs["priority"] == -10
+        assert task_id == "task-789"
