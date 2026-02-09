@@ -28,6 +28,7 @@ Environment Variables:
 """
 
 import os
+import signal
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,6 +39,17 @@ from huey import SqliteHuey, crontab
 from neuroflow.runner import run_single_pipeline
 
 log = structlog.get_logger("tasks")
+
+
+class TaskTimeoutError(Exception):
+    """Raised when a task exceeds its timeout."""
+
+    pass
+
+
+def timeout_handler(signum, frame):
+    """Signal handler for task timeout."""
+    raise TaskTimeoutError("Task exceeded timeout limit")
 
 # Determine Huey database path from environment or default
 # This allows the consumer to use the same state_dir as configured
@@ -141,6 +153,13 @@ def run_pipeline_task(
     config = NeuroflowConfig.from_yaml(config_path)
     state = SessionState(config.execution.state_dir)
 
+    # Get timeout from pipeline config
+    timeout_seconds = None
+    for p in config.pipelines.session_level + config.pipelines.subject_level:
+        if p.name == pipeline_name:
+            timeout_seconds = p.timeout_minutes * 60
+            break
+
     # Record task as running
     start_time = datetime.now(timezone.utc).isoformat()
     state.record_pipeline_run(
@@ -150,6 +169,18 @@ def run_pipeline_task(
         status="running",
         start_time=start_time,
     )
+
+    # Set up timeout handler
+    old_handler = None
+    if timeout_seconds:
+        old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(timeout_seconds)
+        log.info(
+            "task.timeout_set",
+            task_id=task_id,
+            pipeline=pipeline_name,
+            timeout_seconds=timeout_seconds,
+        )
 
     try:
         # Execute the pipeline
@@ -162,6 +193,12 @@ def run_pipeline_task(
             log_dir=log_dir,
             force=force,
         )
+
+        # Cancel timeout if task completed successfully
+        if timeout_seconds:
+            signal.alarm(0)
+            if old_handler:
+                signal.signal(signal.SIGALRM, old_handler)
 
         # Update state with completion
         end_time = datetime.now(timezone.utc).isoformat()
@@ -194,7 +231,47 @@ def run_pipeline_task(
 
         return result_dict
 
+    except TaskTimeoutError as e:
+        # Cancel alarm and restore handler
+        if timeout_seconds:
+            signal.alarm(0)
+            if old_handler:
+                signal.signal(signal.SIGALRM, old_handler)
+
+        # Record timeout failure
+        end_time = datetime.now(timezone.utc).isoformat()
+        error_msg = f"Task exceeded timeout limit ({timeout_seconds}s): {str(e)}"
+
+        state.record_pipeline_run(
+            participant_id=participant_id,
+            session_id=session_id,
+            pipeline_name=pipeline_name,
+            status="failed",
+            start_time=start_time,
+            end_time=end_time,
+            error_message=error_msg,
+        )
+
+        log.error(
+            "task.timeout",
+            task_id=task_id,
+            pipeline=pipeline_name,
+            participant=participant_id,
+            session=session_id,
+            timeout_seconds=timeout_seconds,
+            error=error_msg,
+        )
+
+        # Re-raise so Huey can handle retries
+        raise
+
     except Exception as e:
+        # Cancel alarm and restore handler
+        if timeout_seconds:
+            signal.alarm(0)
+            if old_handler:
+                signal.signal(signal.SIGALRM, old_handler)
+
         # Record failure
         end_time = datetime.now(timezone.utc).isoformat()
         error_msg = str(e)
