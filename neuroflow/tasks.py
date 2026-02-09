@@ -368,33 +368,82 @@ def get_queue_details() -> list[dict]:
     # Get pending tasks (ready to run)
     for task in huey.pending():
         try:
-            # Extract metadata from task args
-            # Args are: (config_path, participant_id, session_id, dicom_path,
-            #            pipeline_name, log_dir, force)
-            if len(task.args) >= 5:
-                tasks.append({
-                    "task_id": task.id,
-                    "pipeline_name": task.args[4],  # pipeline_name
-                    "participant_id": task.args[1],  # participant_id
-                    "session_id": task.args[2],  # session_id
-                    "status": "queued",
-                })
-        except (IndexError, AttributeError):
+            # Prefer extracting metadata from keyword arguments when available.
+            pipeline_name = None
+            participant_id = None
+            session_id = None
+
+            # Attempt to read from task.kwargs first (by name).
+            task_kwargs = getattr(task, "kwargs", None)
+            if isinstance(task_kwargs, dict):
+                pipeline_name = task_kwargs.get("pipeline_name")
+                participant_id = task_kwargs.get("participant_id")
+                session_id = task_kwargs.get("session_id")
+
+            # Fallback to positional args only if needed and available.
+            if (pipeline_name is None or participant_id is None or session_id is None):
+                task_args = getattr(task, "args", None)
+                if isinstance(task_args, (list, tuple)) and len(task_args) >= 5:
+                    # Args are: (config_path, participant_id, session_id, dicom_path,
+                    #            pipeline_name, log_dir, force)
+                    if participant_id is None:
+                        participant_id = task_args[1]
+                    if session_id is None:
+                        session_id = task_args[2]
+                    if pipeline_name is None:
+                        pipeline_name = task_args[4]
+
+            # Skip tasks that don't have the required metadata.
+            if pipeline_name is None or participant_id is None or session_id is None:
+                continue
+
+            tasks.append({
+                "task_id": task.id,
+                "pipeline_name": pipeline_name,
+                "participant_id": participant_id,
+                "session_id": session_id,
+                "status": "queued",
+            })
+        except AttributeError:
             # Skip tasks that don't have expected structure
             continue
 
     # Get scheduled tasks (scheduled for future execution)
     for task in huey.scheduled():
         try:
-            if len(task.args) >= 5:
-                tasks.append({
-                    "task_id": task.id,
-                    "pipeline_name": task.args[4],
-                    "participant_id": task.args[1],
-                    "session_id": task.args[2],
-                    "status": "scheduled",
-                })
-        except (IndexError, AttributeError):
+            pipeline_name = None
+            participant_id = None
+            session_id = None
+
+            task_kwargs = getattr(task, "kwargs", None)
+            if isinstance(task_kwargs, dict):
+                pipeline_name = task_kwargs.get("pipeline_name")
+                participant_id = task_kwargs.get("participant_id")
+                session_id = task_kwargs.get("session_id")
+
+            if (pipeline_name is None or participant_id is None or session_id is None):
+                task_args = getattr(task, "args", None)
+                if isinstance(task_args, (list, tuple)) and len(task_args) >= 5:
+                    # Args are: (config_path, participant_id, session_id, dicom_path,
+                    #            pipeline_name, log_dir, force)
+                    if participant_id is None:
+                        participant_id = task_args[1]
+                    if session_id is None:
+                        session_id = task_args[2]
+                    if pipeline_name is None:
+                        pipeline_name = task_args[4]
+
+            if pipeline_name is None or participant_id is None or session_id is None:
+                continue
+
+            tasks.append({
+                "task_id": task.id,
+                "pipeline_name": pipeline_name,
+                "participant_id": participant_id,
+                "session_id": session_id,
+                "status": "scheduled",
+            })
+        except AttributeError:
             continue
 
     return tasks
