@@ -227,11 +227,19 @@ def _show_pipelines(state: "SessionState", output_format: str, status_filter: st
             queue_df["end_time"] = ""
             queue_df["error_message"] = ""
 
+            # Ensure state data has priority column
+            if not df.empty and "priority" not in df.columns:
+                df["priority"] = ""
+
             # Combine with existing runs
             if not df.empty:
                 df = pd.concat([queue_df, df], ignore_index=True)
             else:
                 df = queue_df
+        else:
+            # Add priority column to state data even if no queue tasks
+            if not df.empty and "priority" not in df.columns:
+                df["priority"] = ""
     except Exception as e:
         # Gracefully skip queue details if configure_huey fails (read-only dirs, etc.)
         # Status command should remain read-only and work even without queue access
@@ -260,6 +268,7 @@ def _show_pipelines(state: "SessionState", output_format: str, status_filter: st
         table.add_column("Session", style="cyan")
         table.add_column("Pipeline")
         table.add_column("Status", style="bold")
+        table.add_column("Priority", justify="right")
         table.add_column("Duration")
         table.add_column("Task ID")
 
@@ -280,6 +289,22 @@ def _show_pipelines(state: "SessionState", output_format: str, status_filter: st
                 except (ValueError, TypeError):
                     duration = ""
 
+            # Show priority for queued/scheduled tasks
+            priority_str = ""
+            if status_val in ("queued", "scheduled"):
+                priority = row.get("priority", "")
+                if priority != "" and str(priority) != "nan":
+                    try:
+                        priority_val = int(priority)
+                        if priority_val > 0:
+                            priority_str = f"[yellow]{priority_val}[/yellow]"
+                        elif priority_val < 0:
+                            priority_str = f"[dim]{priority_val}[/dim]"
+                        else:
+                            priority_str = str(priority_val)
+                    except (ValueError, TypeError):
+                        priority_str = ""
+
             # Show task ID for queued tasks, exit code for completed
             task_info = ""
             if status_val in ("queued", "scheduled"):
@@ -294,6 +319,7 @@ def _show_pipelines(state: "SessionState", output_format: str, status_filter: st
                 row["session_id"],
                 row["pipeline_name"],
                 f"[{style}]{status_val}[/]",
+                priority_str if priority_str else "[dim]-[/dim]",
                 str(duration) if duration else "[dim]-[/dim]",
                 task_info if task_info else "[dim]-[/dim]",
             )

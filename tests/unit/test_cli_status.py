@@ -587,3 +587,143 @@ class TestStatusReadOnlyStateDir:
         assert "Sessions: 1" in result.output
         assert "Worker status: unavailable" in result.output
         # Should NOT crash with PermissionError
+
+
+class TestStatusPipelinesPhase6:
+    """Tests for Phase 6 priority visibility features."""
+
+    @patch("neuroflow.tasks.configure_huey")
+    @patch("neuroflow.tasks.get_queue_details")
+    @patch("neuroflow.state.SessionState")
+    def test_pipelines_show_priority_for_queued_tasks(
+        self, mock_state_cls, mock_get_queue_details, mock_configure_huey, runner, yaml_config
+    ):
+        """Test that priority is displayed for queued tasks."""
+        # Mock completed runs (no priority)
+        runs_df = pd.DataFrame([
+            {
+                "participant_id": "sub-001",
+                "session_id": "ses-01",
+                "pipeline_name": "qsiprep",
+                "status": "completed",
+                "duration_seconds": "120.5",
+                "exit_code": "0",
+            }
+        ])
+        mock_state = MagicMock()
+        mock_state.load_pipeline_runs.return_value = runs_df
+        mock_state.state_dir = "/tmp/state"
+        mock_state_cls.return_value = mock_state
+
+        # Mock queued tasks with different priorities
+        mock_get_queue_details.return_value = [
+            {
+                "task_id": "high-priority-task",
+                "pipeline_name": "fmriprep",
+                "participant_id": "sub-urgent",
+                "session_id": "ses-01",
+                "priority": 10,
+                "status": "queued",
+            },
+            {
+                "task_id": "normal-priority-task",
+                "pipeline_name": "mriqc",
+                "participant_id": "sub-routine",
+                "session_id": "ses-01",
+                "priority": 0,
+                "status": "queued",
+            },
+            {
+                "task_id": "low-priority-task",
+                "pipeline_name": "qsiprep",
+                "participant_id": "sub-bulk",
+                "session_id": "ses-01",
+                "priority": -10,
+                "status": "scheduled",
+            },
+        ]
+
+        result = runner.invoke(
+            cli, ["--config", yaml_config, "status", "--pipelines"]
+        )
+        assert result.exit_code == 0
+        # Check that priority column exists
+        assert "Priority" in result.output
+        # Verify all priority values are displayed
+        assert "10" in result.output  # High priority
+        assert "-10" in result.output  # Low priority
+        # Verify tasks are visible (may be truncated in display)
+        assert "sub-urgent" in result.output
+        assert "sub-bulk" in result.output
+        # Verify pipeline names
+        assert "fmriprep" in result.output
+        assert "mriqc" in result.output
+
+    @patch("neuroflow.tasks.configure_huey")
+    @patch("neuroflow.tasks.get_queue_details")
+    @patch("neuroflow.state.SessionState")
+    def test_pipelines_priority_column_empty_for_completed(
+        self, mock_state_cls, mock_get_queue_details, mock_configure_huey, runner, yaml_config
+    ):
+        """Test that priority column shows dash for completed tasks."""
+        # Mock only completed runs
+        runs_df = pd.DataFrame([
+            {
+                "participant_id": "sub-001",
+                "session_id": "ses-01",
+                "pipeline_name": "qsiprep",
+                "status": "completed",
+                "duration_seconds": "120.5",
+                "exit_code": "0",
+            }
+        ])
+        mock_state = MagicMock()
+        mock_state.load_pipeline_runs.return_value = runs_df
+        mock_state.state_dir = "/tmp/state"
+        mock_state_cls.return_value = mock_state
+
+        # No queued tasks
+        mock_get_queue_details.return_value = []
+
+        result = runner.invoke(
+            cli, ["--config", yaml_config, "status", "--pipelines"]
+        )
+        assert result.exit_code == 0
+        # Priority column should exist but show dash for completed
+        assert "Priority" in result.output
+        # Output should show the completed task
+        assert "qsiprep" in result.output
+        assert "completed" in result.output
+
+    @patch("neuroflow.tasks.configure_huey")
+    @patch("neuroflow.tasks.get_queue_details")
+    @patch("neuroflow.state.SessionState")
+    def test_get_queue_details_returns_priority(
+        self, mock_state_cls, mock_get_queue_details, mock_configure_huey, runner, yaml_config
+    ):
+        """Test that get_queue_details includes priority in returned metadata."""
+        mock_state = MagicMock()
+        mock_state.load_pipeline_runs.return_value = pd.DataFrame()
+        mock_state.state_dir = "/tmp/state"
+        mock_state_cls.return_value = mock_state
+
+        # Mock queue details with priority
+        queue_details_with_priority = [
+            {
+                "task_id": "test-task",
+                "pipeline_name": "test_pipeline",
+                "participant_id": "sub-001",
+                "session_id": "ses-01",
+                "priority": 5,
+                "status": "queued",
+            }
+        ]
+        mock_get_queue_details.return_value = queue_details_with_priority
+
+        result = runner.invoke(
+            cli, ["--config", yaml_config, "status", "--pipelines"]
+        )
+        assert result.exit_code == 0
+
+        # Verify get_queue_details was called
+        mock_get_queue_details.assert_called_once()

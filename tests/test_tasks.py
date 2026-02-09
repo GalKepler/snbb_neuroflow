@@ -404,6 +404,7 @@ class TestGetQueueDetails:
         mock_task = MagicMock()
         mock_task.id = "task-123"
         mock_task.kwargs = {}  # Empty kwargs dict
+        mock_task.priority = 0  # Default priority
         mock_task.args = (
             "/config.yaml",
             "sub-001",
@@ -423,6 +424,7 @@ class TestGetQueueDetails:
         assert details[0]["pipeline_name"] == "qsiprep"
         assert details[0]["participant_id"] == "sub-001"
         assert details[0]["session_id"] == "ses-01"
+        assert details[0]["priority"] == 0  # Default priority
         assert details[0]["status"] == "queued"
 
     @patch("neuroflow.tasks.huey")
@@ -434,6 +436,7 @@ class TestGetQueueDetails:
         mock_task = MagicMock()
         mock_task.id = "task-456"
         mock_task.kwargs = {}  # Empty kwargs dict
+        mock_task.priority = 0  # Default priority
         mock_task.args = (
             "/config.yaml",
             "sub-002",
@@ -462,6 +465,7 @@ class TestGetQueueDetails:
         mock_pending = MagicMock()
         mock_pending.id = "task-pending"
         mock_pending.kwargs = {}  # Empty kwargs dict
+        mock_pending.priority = 0  # Default priority
         mock_pending.args = (
             "/config.yaml",
             "sub-001",
@@ -476,6 +480,7 @@ class TestGetQueueDetails:
         mock_scheduled = MagicMock()
         mock_scheduled.id = "task-scheduled"
         mock_scheduled.kwargs = {}  # Empty kwargs dict
+        mock_scheduled.priority = 0  # Default priority
         mock_scheduled.args = (
             "/config.yaml",
             "sub-002",
@@ -517,12 +522,14 @@ class TestGetQueueDetails:
         mock_bad_task = MagicMock()
         mock_bad_task.id = "task-bad"
         mock_bad_task.kwargs = {}  # Empty kwargs dict
+        mock_bad_task.priority = 0  # Default priority
         mock_bad_task.args = ("short", "args")  # Not enough args
 
         # Mock good task
         mock_good_task = MagicMock()
         mock_good_task.id = "task-good"
         mock_good_task.kwargs = {}  # Empty kwargs dict
+        mock_good_task.priority = 0  # Default priority
         mock_good_task.args = (
             "/config.yaml",
             "sub-001",
@@ -541,6 +548,71 @@ class TestGetQueueDetails:
         # Should only get the good task
         assert len(details) == 1
         assert details[0]["task_id"] == "task-good"
+
+    @patch("neuroflow.tasks.huey")
+    def test_get_queue_details_with_priority(self, mock_huey):
+        """Test that priority is extracted from tasks."""
+        from neuroflow.tasks import get_queue_details
+
+        # Mock tasks with different priorities
+        mock_high = MagicMock()
+        mock_high.id = "task-high"
+        mock_high.kwargs = {}
+        mock_high.priority = 10  # High priority
+        mock_high.args = (
+            "/config.yaml",
+            "sub-urgent",
+            "ses-01",
+            "/data",
+            "qsiprep",
+            "/logs",
+            False,
+        )
+
+        mock_normal = MagicMock()
+        mock_normal.id = "task-normal"
+        mock_normal.kwargs = {}
+        mock_normal.priority = 0  # Normal priority
+        mock_normal.args = (
+            "/config.yaml",
+            "sub-routine",
+            "ses-01",
+            "/data",
+            "mriqc",
+            "/logs",
+            False,
+        )
+
+        mock_low = MagicMock()
+        mock_low.id = "task-low"
+        mock_low.kwargs = {}
+        mock_low.priority = -10  # Low priority
+        mock_low.args = (
+            "/config.yaml",
+            "sub-bulk",
+            "ses-01",
+            "/data",
+            "fmriprep",
+            "/logs",
+            False,
+        )
+
+        mock_huey.pending.return_value = [mock_high, mock_normal]
+        mock_huey.scheduled.return_value = [mock_low]
+
+        details = get_queue_details()
+
+        assert len(details) == 3
+
+        # Verify priorities are extracted correctly
+        high_task = next(d for d in details if d["task_id"] == "task-high")
+        assert high_task["priority"] == 10
+
+        normal_task = next(d for d in details if d["task_id"] == "task-normal")
+        assert normal_task["priority"] == 0
+
+        low_task = next(d for d in details if d["task_id"] == "task-low")
+        assert low_task["priority"] == -10
 
 
 class TestPriorityEnqueueing:

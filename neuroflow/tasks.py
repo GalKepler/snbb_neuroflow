@@ -124,8 +124,9 @@ def run_pipeline_task(
     from neuroflow.config import NeuroflowConfig
     from neuroflow.state import SessionState
 
-    # Get task ID for logging
+    # Get task ID and priority for logging
     task_id = task.id if task else "unknown"
+    priority = getattr(task, "priority", 0) if task else 0
 
     log.info(
         "task.start",
@@ -133,6 +134,7 @@ def run_pipeline_task(
         pipeline=pipeline_name,
         participant=participant_id,
         session=session_id,
+        priority=priority,
     )
 
     # Initialize state tracking
@@ -185,6 +187,7 @@ def run_pipeline_task(
             pipeline=pipeline_name,
             participant=participant_id,
             session=session_id,
+            priority=priority,
             success=result_dict.get("success"),
             duration=result_dict.get("duration_seconds"),
         )
@@ -357,7 +360,7 @@ def get_queue_details() -> list[dict]:
     """Get detailed information about tasks in the queue.
 
     Returns a list of queued tasks with their metadata, including task IDs,
-    pipeline names, participant/session IDs, and queue status.
+    pipeline names, participant/session IDs, priority, and queue status.
 
     Returns:
         List of dictionaries, each containing:
@@ -365,13 +368,15 @@ def get_queue_details() -> list[dict]:
         - pipeline_name: Name of the pipeline
         - participant_id: Participant identifier
         - session_id: Session identifier
+        - priority: Task priority (integer, higher = executes first)
         - status: "queued" for pending tasks, "scheduled" for scheduled tasks
 
     Example:
         >>> details = get_queue_details()
         >>> for task in details:
         ...     print(f"{task['task_id']}: {task['pipeline_name']} "
-        ...           f"{task['participant_id']}/{task['session_id']}")
+        ...           f"{task['participant_id']}/{task['session_id']} "
+        ...           f"priority={task['priority']}")
     """
     tasks = []
 
@@ -401,11 +406,15 @@ def get_queue_details() -> list[dict]:
                 else:
                     return None
 
+            # Extract priority from task (default to 0 if not set)
+            priority = getattr(task, "priority", 0)
+
             return {
                 "task_id": task.id,
                 "pipeline_name": pipeline_name,
                 "participant_id": participant_id,
                 "session_id": session_id,
+                "priority": priority,
                 "status": status,
             }
         except (IndexError, AttributeError, TypeError):
