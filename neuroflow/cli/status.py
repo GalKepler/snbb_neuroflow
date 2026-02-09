@@ -16,29 +16,63 @@ console = Console()
 @click.option("--sessions", is_flag=True, help="Show session details")
 @click.option("--pipelines", is_flag=True, help="Show pipeline run details")
 @click.option("--format", "output_format", default="table", type=click.Choice(["table", "csv", "json"]), help="Output format")
+@click.option("--filter", "status_filter", default="all", type=click.Choice(["all", "queued", "running", "completed", "failed"]), help="Filter by status (default: all)")
+@click.option("--watch", is_flag=True, help="Refresh display every 5 seconds (Ctrl+C to exit)")
+@click.option("--interval", default=5, type=click.IntRange(min=1), help="Watch interval in seconds (default: 5)")
 @click.pass_context
 def status(
     ctx: click.Context,
     sessions: bool,
     pipelines: bool,
     output_format: str,
+    status_filter: str,
+    watch: bool,
+    interval: int,
 ) -> None:
-    """Show system status from CSV state."""
+    """Show system status from CSV state.
+
+    Examples:
+        # Show summary
+        neuroflow status
+
+        # Show all pipeline runs
+        neuroflow status --pipelines
+
+        # Show only queued tasks
+        neuroflow status --pipelines --filter queued
+
+        # Watch status in real-time
+        neuroflow status --pipelines --watch
+
+        # Watch with custom interval
+        neuroflow status --pipelines --watch --interval 10
+    """
     from neuroflow.state import SessionState
 
     config = ctx.obj["config"]
-    state = SessionState(config.execution.state_dir)
 
-    if sessions:
-        _show_sessions(state, output_format)
-    elif pipelines:
-        _show_pipelines(state, output_format)
+    if watch:
+        # Watch mode: refresh display
+        if output_format != "table":
+            console.print("[yellow]Watch mode only works with table format[/yellow]")
+            sys.exit(1)
+
+        _watch_status(config, sessions, pipelines, status_filter, interval)
     else:
-        _show_summary(state)
+        # Single display
+        state = SessionState(config.execution.state_dir)
+
+        if sessions:
+            _show_sessions(state, output_format)
+        elif pipelines:
+            _show_pipelines(state, output_format, status_filter)
+        else:
+            _show_summary(state)
 
 
 def _show_summary(state: "SessionState") -> None:
     """Show overall summary counts."""
+
     sessions_df = state.get_session_table()
     pipeline_df = state.get_pipeline_summary()
 
@@ -47,6 +81,10 @@ def _show_summary(state: "SessionState") -> None:
     if sessions_df.empty:
         console.print("[dim]No data yet. Run 'neuroflow scan' to discover sessions.[/dim]")
         return
+
+    # Worker status
+    _show_worker_status(state)
+    console.print()
 
     console.print(f"Sessions: {len(sessions_df)}\n")
 
@@ -79,6 +117,7 @@ def _show_summary(state: "SessionState") -> None:
                 "completed": "green",
                 "failed": "red",
                 "running": "yellow",
+                "queued": "cyan",
             }.get(row["status"], "white")
             table.add_row(
                 row["pipeline_name"],
@@ -86,6 +125,40 @@ def _show_summary(state: "SessionState") -> None:
                 str(row["count"]),
             )
         console.print(table)
+
+
+def _show_worker_status(state: "SessionState") -> None:
+    """Show worker and queue status."""
+    from pathlib import Path
+    from neuroflow.tasks import configure_huey, get_queue_stats
+
+    # Get queue stats - wrap configure_huey in try-except to handle read-only state dirs
+    try:
+        # Configure Huey to use correct state directory
+        # This may fail on read-only mounts or permission errors
+        configure_huey(Path(state.state_dir))
+
+        stats = get_queue_stats()
+        queued_count = stats.get("pending", 0) + stats.get("scheduled", 0)
+
+        # Check if worker is running
+        from neuroflow.cli.worker import _read_pid, _get_pid_file
+
+        pid_file = _get_pid_file(Path(state.state_dir))
+        worker_pid = _read_pid(pid_file)
+
+        if worker_pid:
+            worker_status = f"[green]✓[/green] Running (PID: {worker_pid})"
+        else:
+            worker_status = "[yellow]✗[/yellow] Not running"
+
+        # Display compact status line
+        queue_display = f"[cyan]{queued_count}[/cyan]" if queued_count > 0 else f"[dim]{queued_count}[/dim]"
+        console.print(f"Worker: {worker_status}  |  Queue: {queue_display} pending")
+
+    except Exception as e:
+        # Gracefully handle failures (read-only dirs, permission errors, etc.)
+        console.print(f"[dim]Worker status: unavailable ({e})[/dim]")
 
 
 def _show_sessions(state: "SessionState", output_format: str) -> None:
@@ -128,26 +201,67 @@ def _show_sessions(state: "SessionState", output_format: str) -> None:
         console.print(table)
 
 
-def _show_pipelines(state: "SessionState", output_format: str) -> None:
-    """Show pipeline run details."""
+def _show_pipelines(state: "SessionState", output_format: str, status_filter: str = "all") -> None:
+    """Show pipeline run details, including queued tasks."""
+    import pandas as pd
+    from pathlib import Path
+    from neuroflow.tasks import configure_huey, get_queue_details
+
+    # Get completed/failed runs from state
     df = state.load_pipeline_runs()
+
+    # Get queued tasks from queue - wrap in try-except to handle read-only state dirs
+    try:
+        # Configure Huey to use correct state directory
+        # This may fail on read-only mounts or permission errors
+        configure_huey(Path(state.state_dir))
+
+        queue_details = get_queue_details()
+        if queue_details:
+            # Convert queue details to DataFrame
+            queue_df = pd.DataFrame(queue_details)
+            # Add empty columns to match state schema
+            queue_df["duration_seconds"] = ""
+            queue_df["exit_code"] = ""
+            queue_df["start_time"] = ""
+            queue_df["end_time"] = ""
+            queue_df["error_message"] = ""
+
+            # Combine with existing runs
+            if not df.empty:
+                df = pd.concat([queue_df, df], ignore_index=True)
+            else:
+                df = queue_df
+    except Exception as e:
+        # Gracefully skip queue details if configure_huey fails (read-only dirs, etc.)
+        # Status command should remain read-only and work even without queue access
+        pass  # Silently skip queue details, continue with state data only
 
     if df.empty:
         console.print("[yellow]No pipeline runs found.[/yellow]")
         return
+
+    # Apply status filter
+    if status_filter != "all":
+        df = df[df["status"] == status_filter]
+
+        if df.empty:
+            console.print(f"[yellow]No pipeline runs with status '{status_filter}'.[/yellow]")
+            return
 
     if output_format == "csv":
         console.print(df.to_csv(index=False))
     elif output_format == "json":
         console.print(df.to_json(orient="records", indent=2))
     else:
-        table = Table(title=f"Pipeline Runs ({len(df)} total)")
+        filter_text = f" (filtered: {status_filter})" if status_filter != "all" else ""
+        table = Table(title=f"Pipeline Runs ({len(df)} total{filter_text})")
         table.add_column("Participant", style="cyan")
         table.add_column("Session", style="cyan")
         table.add_column("Pipeline")
         table.add_column("Status", style="bold")
         table.add_column("Duration")
-        table.add_column("Exit Code", justify="right")
+        table.add_column("Task ID")
 
         for _, row in df.iterrows():
             status_val = row.get("status", "")
@@ -155,22 +269,82 @@ def _show_pipelines(state: "SessionState", output_format: str) -> None:
                 "completed": "green",
                 "failed": "red",
                 "running": "yellow",
+                "queued": "cyan",
+                "scheduled": "blue",
             }.get(status_val, "white")
 
             duration = row.get("duration_seconds", "")
-            if duration and duration != "nan":
+            if duration and duration != "nan" and duration != "":
                 try:
                     duration = f"{float(duration):.1f}s"
                 except (ValueError, TypeError):
-                    pass
+                    duration = ""
+
+            # Show task ID for queued tasks, exit code for completed
+            task_info = ""
+            if status_val in ("queued", "scheduled"):
+                task_id = str(row.get("task_id", ""))
+                task_info = task_id[:8] if task_id else ""  # Show first 8 chars
+            else:
+                exit_code = row.get("exit_code", "")
+                task_info = f"exit: {exit_code}" if exit_code else ""
 
             table.add_row(
                 row["participant_id"],
                 row["session_id"],
                 row["pipeline_name"],
                 f"[{style}]{status_val}[/]",
-                str(duration),
-                str(row.get("exit_code", "")),
+                str(duration) if duration else "[dim]-[/dim]",
+                task_info if task_info else "[dim]-[/dim]",
             )
 
         console.print(table)
+
+def _watch_status(
+    config: "NeuroflowConfig",
+    sessions: bool,
+    pipelines: bool,
+    status_filter: str,
+    interval: int,
+) -> None:
+    """Watch status with automatic refresh.
+
+    Args:
+        config: Neuroflow configuration
+        sessions: Show session details
+        pipelines: Show pipeline details
+        status_filter: Status filter for pipelines
+        interval: Refresh interval in seconds
+    """
+    import time
+    from neuroflow.state import SessionState
+
+    console.print(f"[dim]Watching status (refresh every {interval}s, Ctrl+C to exit)...[/dim]\n")
+
+    try:
+        while True:
+            # Clear screen
+            console.clear()
+
+            # Reload state
+            state = SessionState(config.execution.state_dir)
+
+            # Display status
+            if sessions:
+                _show_sessions(state, "table")
+            elif pipelines:
+                _show_pipelines(state, "table", status_filter)
+            else:
+                _show_summary(state)
+
+            # Show refresh info
+            import datetime
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            console.print(f"\n[dim]Last updated: {now} | Refresh every {interval}s | Press Ctrl+C to exit[/dim]")
+
+            # Wait for next refresh
+            time.sleep(interval)
+
+    except KeyboardInterrupt:
+        console.print("\n[dim]Watch mode stopped[/dim]")
+        sys.exit(0)

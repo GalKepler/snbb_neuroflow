@@ -294,3 +294,296 @@ class TestStatusPipelines:
         )
         assert result.exit_code == 0
         assert "running" in result.output
+
+
+class TestStatusPipelinesPhase4:
+    """Tests for Phase 4 enhanced status features."""
+
+    @patch("neuroflow.tasks.configure_huey")
+    @patch("neuroflow.tasks.get_queue_details")
+    @patch("neuroflow.state.SessionState")
+    def test_pipelines_with_queued_tasks(
+        self, mock_state_cls, mock_get_queue_details, mock_configure_huey, runner, yaml_config
+    ):
+        """Test that queued tasks from the queue are shown in pipelines."""
+        # Mock completed runs
+        runs_df = pd.DataFrame([
+            {
+                "participant_id": "sub-001",
+                "session_id": "ses-01",
+                "pipeline_name": "qsiprep",
+                "status": "completed",
+                "duration_seconds": "120.5",
+                "exit_code": "0",
+            }
+        ])
+        mock_state = MagicMock()
+        mock_state.load_pipeline_runs.return_value = runs_df
+        mock_state.state_dir = "/tmp/state"
+        mock_state_cls.return_value = mock_state
+
+        # Mock queued tasks
+        mock_get_queue_details.return_value = [
+            {
+                "task_id": "abc12345-6789-abcd-ef01-23456789abcd",
+                "pipeline_name": "fmriprep",
+                "participant_id": "sub-002",
+                "session_id": "ses-02",
+                "status": "queued",
+            }
+        ]
+
+        result = runner.invoke(
+            cli, ["--config", yaml_config, "status", "--pipelines"]
+        )
+        assert result.exit_code == 0
+        assert "qsiprep" in result.output  # Completed
+        assert "fmriprep" in result.output  # Queued
+        assert "sub-002" in result.output
+        assert "queued" in result.output
+
+    @patch("neuroflow.tasks.configure_huey")
+    @patch("neuroflow.tasks.get_queue_details")
+    @patch("neuroflow.state.SessionState")
+    def test_pipelines_filter_queued(
+        self, mock_state_cls, mock_get_queue_details, mock_configure_huey, runner, yaml_config
+    ):
+        """Test filtering pipelines by queued status."""
+        # Mock completed runs
+        runs_df = pd.DataFrame([
+            {
+                "participant_id": "sub-001",
+                "session_id": "ses-01",
+                "pipeline_name": "qsiprep",
+                "status": "completed",
+                "duration_seconds": "120.5",
+                "exit_code": "0",
+            }
+        ])
+        mock_state = MagicMock()
+        mock_state.load_pipeline_runs.return_value = runs_df
+        mock_state.state_dir = "/tmp/state"
+        mock_state_cls.return_value = mock_state
+
+        # Mock queued tasks
+        mock_get_queue_details.return_value = [
+            {
+                "task_id": "abc12345",
+                "pipeline_name": "fmriprep",
+                "participant_id": "sub-002",
+                "session_id": "ses-02",
+                "status": "queued",
+            }
+        ]
+
+        result = runner.invoke(
+            cli, ["--config", yaml_config, "status", "--pipelines", "--filter", "queued"]
+        )
+        assert result.exit_code == 0
+        assert "fmriprep" in result.output  # Queued task shown
+        assert "qsiprep" not in result.output  # Completed task filtered out
+        assert "filtered: queued" in result.output
+
+    @patch("neuroflow.tasks.configure_huey")
+    @patch("neuroflow.tasks.get_queue_details")
+    @patch("neuroflow.state.SessionState")
+    def test_pipelines_filter_completed(
+        self, mock_state_cls, mock_get_queue_details, mock_configure_huey, runner, yaml_config
+    ):
+        """Test filtering pipelines by completed status."""
+        # Mock completed runs
+        runs_df = pd.DataFrame([
+            {
+                "participant_id": "sub-001",
+                "session_id": "ses-01",
+                "pipeline_name": "qsiprep",
+                "status": "completed",
+                "duration_seconds": "120.5",
+                "exit_code": "0",
+            }
+        ])
+        mock_state = MagicMock()
+        mock_state.load_pipeline_runs.return_value = runs_df
+        mock_state.state_dir = "/tmp/state"
+        mock_state_cls.return_value = mock_state
+
+        # Mock queued tasks
+        mock_get_queue_details.return_value = [
+            {
+                "task_id": "abc12345",
+                "pipeline_name": "fmriprep",
+                "participant_id": "sub-002",
+                "session_id": "ses-02",
+                "status": "queued",
+            }
+        ]
+
+        result = runner.invoke(
+            cli, ["--config", yaml_config, "status", "--pipelines", "--filter", "completed"]
+        )
+        assert result.exit_code == 0
+        assert "qsiprep" in result.output  # Completed task shown
+        assert "fmriprep" not in result.output  # Queued task filtered out
+
+    @patch("neuroflow.tasks.configure_huey")
+    @patch("neuroflow.tasks.get_queue_details")
+    @patch("neuroflow.state.SessionState")
+    def test_pipelines_filter_no_matches(
+        self, mock_state_cls, mock_get_queue_details, mock_configure_huey, runner, yaml_config
+    ):
+        """Test filtering with no matching results."""
+        # Mock completed runs only
+        runs_df = pd.DataFrame([
+            {
+                "participant_id": "sub-001",
+                "session_id": "ses-01",
+                "pipeline_name": "qsiprep",
+                "status": "completed",
+                "duration_seconds": "120.5",
+                "exit_code": "0",
+            }
+        ])
+        mock_state = MagicMock()
+        mock_state.load_pipeline_runs.return_value = runs_df
+        mock_state.state_dir = "/tmp/state"
+        mock_state_cls.return_value = mock_state
+
+        # No queued tasks
+        mock_get_queue_details.return_value = []
+
+        result = runner.invoke(
+            cli, ["--config", yaml_config, "status", "--pipelines", "--filter", "queued"]
+        )
+        assert result.exit_code == 0
+        assert "No pipeline runs with status 'queued'" in result.output
+
+
+class TestStatusWorkerStatusPhase4:
+    """Tests for Phase 4 worker status in summary."""
+
+    @patch("neuroflow.cli.worker._read_pid")
+    @patch("neuroflow.tasks.get_queue_stats")
+    @patch("neuroflow.tasks.configure_huey")
+    @patch("neuroflow.state.SessionState")
+    def test_summary_shows_worker_running(
+        self, mock_state_cls, mock_configure_huey, mock_get_queue_stats, mock_read_pid, runner, yaml_config
+    ):
+        """Test that summary shows worker status when running."""
+        sessions_df = pd.DataFrame([
+            {"participant_id": "sub-001", "session_id": "ses-01", "status": "validated"},
+        ])
+        mock_state = MagicMock()
+        mock_state.get_session_table.return_value = sessions_df
+        mock_state.get_pipeline_summary.return_value = pd.DataFrame(
+            columns=["pipeline_name", "status", "count"]
+        )
+        mock_state.state_dir = "/tmp/state"
+        mock_state_cls.return_value = mock_state
+
+        # Mock worker running
+        mock_read_pid.return_value = 12345
+        mock_get_queue_stats.return_value = {"pending": 3, "scheduled": 1}
+
+        result = runner.invoke(cli, ["--config", yaml_config, "status"])
+        assert result.exit_code == 0
+        assert "Worker:" in result.output
+        assert "Running" in result.output
+        assert "12345" in result.output
+        assert "Queue:" in result.output
+        assert "4" in result.output  # 3 + 1
+
+    @patch("neuroflow.cli.worker._read_pid")
+    @patch("neuroflow.tasks.get_queue_stats")
+    @patch("neuroflow.tasks.configure_huey")
+    @patch("neuroflow.state.SessionState")
+    def test_summary_shows_worker_not_running(
+        self, mock_state_cls, mock_configure_huey, mock_get_queue_stats, mock_read_pid, runner, yaml_config
+    ):
+        """Test that summary shows worker status when not running."""
+        sessions_df = pd.DataFrame([
+            {"participant_id": "sub-001", "session_id": "ses-01", "status": "validated"},
+        ])
+        mock_state = MagicMock()
+        mock_state.get_session_table.return_value = sessions_df
+        mock_state.get_pipeline_summary.return_value = pd.DataFrame(
+            columns=["pipeline_name", "status", "count"]
+        )
+        mock_state.state_dir = "/tmp/state"
+        mock_state_cls.return_value = mock_state
+
+        # Mock worker not running
+        mock_read_pid.return_value = None
+        mock_get_queue_stats.return_value = {"pending": 0, "scheduled": 0}
+
+        result = runner.invoke(cli, ["--config", yaml_config, "status"])
+        assert result.exit_code == 0
+        assert "Worker:" in result.output
+        assert "Not running" in result.output
+
+
+class TestStatusReadOnlyStateDir:
+    """Tests for graceful handling of read-only state directories."""
+
+    @patch("neuroflow.tasks.configure_huey")
+    @patch("neuroflow.state.SessionState")
+    def test_pipelines_with_readonly_state_dir(
+        self, mock_state_cls, mock_configure_huey, runner, yaml_config
+    ):
+        """Test that pipelines display works even if state dir is read-only."""
+        # Mock completed runs
+        runs_df = pd.DataFrame([
+            {
+                "participant_id": "sub-001",
+                "session_id": "ses-01",
+                "pipeline_name": "qsiprep",
+                "status": "completed",
+                "duration_seconds": "120.5",
+                "exit_code": "0",
+            }
+        ])
+        mock_state = MagicMock()
+        mock_state.load_pipeline_runs.return_value = runs_df
+        mock_state.state_dir = "/tmp/state"
+        mock_state_cls.return_value = mock_state
+
+        # Simulate PermissionError when configure_huey tries to mkdir
+        mock_configure_huey.side_effect = PermissionError("Read-only file system")
+
+        result = runner.invoke(
+            cli, ["--config", yaml_config, "status", "--pipelines"]
+        )
+        
+        # Should succeed and show completed runs, just skip queue info
+        assert result.exit_code == 0
+        assert "qsiprep" in result.output
+        assert "completed" in result.output
+        # Should NOT crash with PermissionError
+
+    @patch("neuroflow.tasks.configure_huey")
+    @patch("neuroflow.tasks.get_queue_stats")
+    @patch("neuroflow.state.SessionState")
+    def test_summary_with_readonly_state_dir(
+        self, mock_state_cls, mock_get_queue_stats, mock_configure_huey, runner, yaml_config
+    ):
+        """Test that summary works even if state dir is read-only."""
+        sessions_df = pd.DataFrame([
+            {"participant_id": "sub-001", "session_id": "ses-01", "status": "validated"},
+        ])
+        mock_state = MagicMock()
+        mock_state.get_session_table.return_value = sessions_df
+        mock_state.get_pipeline_summary.return_value = pd.DataFrame(
+            columns=["pipeline_name", "status", "count"]
+        )
+        mock_state.state_dir = "/tmp/state"
+        mock_state_cls.return_value = mock_state
+
+        # Simulate PermissionError when configure_huey tries to mkdir
+        mock_configure_huey.side_effect = PermissionError("Read-only file system")
+
+        result = runner.invoke(cli, ["--config", yaml_config, "status"])
+        
+        # Should succeed and show sessions, just skip worker status
+        assert result.exit_code == 0
+        assert "Sessions: 1" in result.output
+        assert "Worker status: unavailable" in result.output
+        # Should NOT crash with PermissionError
