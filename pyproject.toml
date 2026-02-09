@@ -16,6 +16,7 @@ dependencies = [
     "google-auth>=2.20",
     "parcellate>=0.1.2",
     "huey>=2.5",
+    "psutil>=6.0",
 ]
 
 [project.optional-dependencies]

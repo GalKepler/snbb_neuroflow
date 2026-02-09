@@ -103,11 +103,13 @@ def _register_commands() -> None:
     from neuroflow.cli.scan import scan
     from neuroflow.cli.status import status
     from neuroflow.cli.validate import validate
+    from neuroflow.cli.worker import worker
 
     cli.add_command(scan)
     cli.add_command(validate)
     cli.add_command(status)
     cli.add_command(run)
+    cli.add_command(worker)
 
 
 _register_commands()
