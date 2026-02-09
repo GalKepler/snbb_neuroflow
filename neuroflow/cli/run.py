@@ -25,7 +25,11 @@ def _run_pipeline_async(
         config_path: Path to config file
         state: SessionState instance
     """
-    from neuroflow.tasks import enqueue_pipeline, get_queue_stats
+    from neuroflow.tasks import configure_huey, enqueue_pipeline, get_queue_stats
+
+    # Configure Huey to use the correct state directory
+    # This ensures CLI and consumer share the same SQLite database
+    configure_huey(config.execution.state_dir)
 
     console.print(
         f"[cyan]Enqueueing '{pipeline_name}' for {len(requests)} session(s) "
@@ -36,7 +40,11 @@ def _run_pipeline_async(
     pipeline_config = None
     if pipeline_name == "bids_conversion":
         bids_cfg = config.pipelines.bids_conversion
-        retries = bids_cfg.get("retries", 0) if isinstance(bids_cfg, dict) else getattr(bids_cfg, "retries", 0)
+        retries = (
+            bids_cfg.get("retries", 0)
+            if isinstance(bids_cfg, dict)
+            else getattr(bids_cfg, "retries", 0)
+        )
     else:
         for p in config.pipelines.session_level + config.pipelines.subject_level:
             if p.name == pipeline_name:
@@ -78,7 +86,11 @@ def _run_pipeline_async(
     )
 
     console.print("[dim]Monitor with:[/dim] neuroflow status runs")
-    console.print("[dim]Consumer:[/dim] huey_consumer neuroflow.tasks.huey -w 4 -k process")
+    state_dir = config.execution.state_dir
+    console.print(
+        f"[dim]Consumer:[/dim] NEUROFLOW_STATE_DIR={state_dir} \\\n"
+        f"           huey_consumer neuroflow.tasks.huey -w 4 -k process"
+    )
 
 
 def _run_pipeline_sync(
@@ -139,7 +151,9 @@ def _run_pipeline_sync(
             )
 
     # Summary table with per-session results
-    succeeded = sum(1 for r in results if r.pipeline_result and r.pipeline_result.success)
+    succeeded = sum(
+        1 for r in results if r.pipeline_result and r.pipeline_result.success
+    )
     failed = len(results) - succeeded
 
     table = Table(title=f"Results: {pipeline_name}")
@@ -152,12 +166,20 @@ def _run_pipeline_sync(
     for r in results:
         if r.pipeline_result and r.pipeline_result.success:
             status_str = "[green]completed[/green]"
-            dur = f"{r.pipeline_result.duration_seconds:.1f}s" if r.pipeline_result.duration_seconds else ""
+            dur = (
+                f"{r.pipeline_result.duration_seconds:.1f}s"
+                if r.pipeline_result.duration_seconds
+                else ""
+            )
         elif r.pipeline_result:
             status_str = f"[red]failed (exit {r.pipeline_result.exit_code})[/red]"
-            dur = f"{r.pipeline_result.duration_seconds:.1f}s" if r.pipeline_result.duration_seconds else ""
+            dur = (
+                f"{r.pipeline_result.duration_seconds:.1f}s"
+                if r.pipeline_result.duration_seconds
+                else ""
+            )
         else:
-            status_str = f"[red]error[/red]"
+            status_str = "[red]error[/red]"
             dur = ""
 
         table.add_row(
@@ -175,7 +197,7 @@ def _run_pipeline_sync(
         console.print(f"  Failed:    [red]{failed}[/red]")
 
         # Show error previews for failures
-        console.print(f"\n[bold]Failure details:[/bold]")
+        console.print("\n[bold]Failure details:[/bold]")
         for r in results:
             error_msg = None
             if r.pipeline_result and not r.pipeline_result.success:
@@ -192,7 +214,9 @@ def _run_pipeline_sync(
                 for line in lines[:5]:
                     console.print(f"    {line}")
                 if len(lines) > 5:
-                    console.print(f"    [dim]... ({len(lines) - 5} more lines, see log)[/dim]")
+                    console.print(
+                        f"    [dim]... ({len(lines) - 5} more lines, see log)[/dim]"
+                    )
                 if r.log_path:
                     console.print(f"    [dim]Full log: {r.log_path}[/dim]")
 
@@ -206,8 +230,16 @@ def run() -> None:
 @click.argument("name")
 @click.option("--participant", default=None, help="Run only for specific participant")
 @click.option("--max-workers", default=None, type=int, help="Override max workers")
-@click.option("--force", is_flag=True, help="Re-run all validated sessions, even if already completed")
-@click.option("--sync", is_flag=True, help="Run synchronously (blocking) instead of enqueueing to background queue")
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Re-run all validated sessions, even if already completed",
+)
+@click.option(
+    "--sync",
+    is_flag=True,
+    help="Run synchronously (blocking) instead of enqueueing to background queue",
+)
 @click.pass_context
 def run_pipeline(
     ctx: click.Context,
@@ -261,7 +293,9 @@ def run_pipeline(
         )
 
     if dry_run:
-        console.print(f"[cyan]Dry run: would execute {len(requests)} run(s) for '{name}':[/cyan]\n")
+        console.print(
+            f"[cyan]Dry run: would execute {len(requests)} run(s) for '{name}':[/cyan]\n"
+        )
         table = Table(title=f"Pipeline: {name}")
         table.add_column("Participant", style="cyan")
         table.add_column("Session", style="cyan")
@@ -278,12 +312,19 @@ def run_pipeline(
         _run_pipeline_async(ctx, name, requests, config, config_path, state)
 
 
-
 @run.command("all")
 @click.option("--participant", default=None, help="Run only for specific participant")
 @click.option("--max-workers", default=None, type=int, help="Override max workers")
-@click.option("--force", is_flag=True, help="Re-run all validated sessions, even if already completed")
-@click.option("--sync", is_flag=True, help="Run synchronously (blocking) instead of enqueueing to background queue")
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Re-run all validated sessions, even if already completed",
+)
+@click.option(
+    "--sync",
+    is_flag=True,
+    help="Run synchronously (blocking) instead of enqueueing to background queue",
+)
 @click.pass_context
 def run_all(
     ctx: click.Context,
@@ -321,7 +362,9 @@ def run_all(
         console.print("[yellow]No enabled pipelines found.[/yellow]")
         return
 
-    console.print(f"[cyan]Running pipelines in order: {', '.join(pipeline_names)}[/cyan]\n")
+    console.print(
+        f"[cyan]Running pipelines in order: {', '.join(pipeline_names)}[/cyan]\n"
+    )
 
     for name in pipeline_names:
         console.print(f"\n[bold]--- {name} ---[/bold]")

@@ -21,8 +21,13 @@ Usage:
 
     # Start the consumer:
     # huey_consumer neuroflow.tasks.huey -w 4 -k process
+
+Environment Variables:
+    NEUROFLOW_STATE_DIR: Override the default state directory for Huey database.
+                         Defaults to ".neuroflow" if not set.
 """
 
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,41 +39,55 @@ from neuroflow.runner import run_single_pipeline
 
 log = structlog.get_logger("tasks")
 
+# Determine Huey database path from environment or default
+# This allows the consumer to use the same state_dir as configured
+_state_dir = os.getenv("NEUROFLOW_STATE_DIR", ".neuroflow")
+_huey_db_path = str(Path(_state_dir) / "huey.db")
+
 # Global Huey instance - initialized at module import time
-# The filename path will be updated by configure_huey() before use
+# Path can be overridden via NEUROFLOW_STATE_DIR environment variable
 huey = SqliteHuey(
     name="neuroflow",
-    filename=".neuroflow/huey.db",  # Default path, should be configured
+    filename=_huey_db_path,
     results=True,  # Store task results
     store_none=False,  # Don't store None results
     utc=True,  # Use UTC timestamps
     immediate=False,  # Don't execute tasks immediately (use consumer)
 )
 
+log.debug("tasks.initialized", huey_db=_huey_db_path)
+
 
 def configure_huey(state_dir: str | Path) -> None:
     """Configure the Huey instance with a custom state directory.
 
     This should be called before enqueuing any tasks to ensure the SQLite
-    database is created in the correct location.
+    database is created in the correct location and that the CLI uses the
+    same database as the consumer.
+
+    Note: The consumer process reads NEUROFLOW_STATE_DIR environment variable
+    at import time, so make sure to set it before starting the consumer:
+        NEUROFLOW_STATE_DIR=/path/to/state huey_consumer neuroflow.tasks.huey
 
     Args:
         state_dir: Directory where huey.db will be stored.
     """
-    global huey
+    global huey, _huey_db_path
     db_path = Path(state_dir) / "huey.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
+    _huey_db_path = str(db_path)
+
     huey = SqliteHuey(
         name="neuroflow",
-        filename=str(db_path),
+        filename=_huey_db_path,
         results=True,
         store_none=False,
         utc=True,
         immediate=False,
     )
 
-    log.info("tasks.configured", huey_db=str(db_path))
+    log.info("tasks.configured", huey_db=_huey_db_path)
 
 
 @huey.task(retries=0, context=True)
