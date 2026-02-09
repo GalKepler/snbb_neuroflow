@@ -14,6 +14,7 @@ def _run_pipeline_async(
     config,
     config_path: str,
     state,
+    priority: int = 0,
 ) -> None:
     """Enqueue pipelines to background queue (non-blocking).
 
@@ -24,6 +25,7 @@ def _run_pipeline_async(
         config: NeuroflowConfig instance
         config_path: Path to config file
         state: SessionState instance
+        priority: Task priority (higher = executes first, default: 0)
     """
     from neuroflow.tasks import configure_huey, enqueue_pipeline, get_queue_stats
 
@@ -71,6 +73,7 @@ def _run_pipeline_async(
             log_dir=log_dir,
             force=req.force,
             retries=retries,
+            priority=priority,
         )
         task_ids.append(task_id)
         # Show shortened task ID (first 8 chars)
@@ -240,6 +243,12 @@ def run() -> None:
     is_flag=True,
     help="Run synchronously (blocking) instead of enqueueing to background queue",
 )
+@click.option(
+    "--priority",
+    default=0,
+    type=int,
+    help="Task priority (higher = executes first, default: 0). Use 10 for high, -10 for low.",
+)
 @click.pass_context
 def run_pipeline(
     ctx: click.Context,
@@ -248,6 +257,7 @@ def run_pipeline(
     max_workers: int | None,
     force: bool = False,
     sync: bool = False,
+    priority: int = 0,
 ) -> None:
     """Run a specific pipeline for pending sessions.
 
@@ -309,7 +319,7 @@ def run_pipeline(
     if sync:
         _run_pipeline_sync(ctx, name, requests, config, config_path, state)
     else:
-        _run_pipeline_async(ctx, name, requests, config, config_path, state)
+        _run_pipeline_async(ctx, name, requests, config, config_path, state, priority)
 
 
 @run.command("all")

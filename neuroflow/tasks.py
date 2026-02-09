@@ -228,6 +228,7 @@ def enqueue_pipeline(
     log_dir: str,
     force: bool = False,
     retries: int = 0,
+    priority: int = 0,
 ) -> str:
     """Enqueue a pipeline run for background execution.
 
@@ -243,6 +244,8 @@ def enqueue_pipeline(
         log_dir: Directory for session-specific log files.
         force: If True, re-run even if already completed.
         retries: Number of times to retry on failure (default: 0).
+        priority: Task priority (higher = executes first, default: 0).
+                  Typical values: high=10, normal=0, low=-10.
 
     Returns:
         Task ID (string UUID) that can be used to query task status.
@@ -257,24 +260,30 @@ def enqueue_pipeline(
         ...     log_dir="/var/log/neuroflow",
         ...     force=False,
         ...     retries=2,
+        ...     priority=10,  # High priority
         ... )
         >>> print(f"Enqueued task: {task_id}")
     """
     from neuroflow.config import NeuroflowConfig
     from neuroflow.state import SessionState
 
-    # Enqueue the task using the already-decorated task
+    # Enqueue the task with priority using schedule() method
     # Note: retries parameter is currently not dynamically configurable
     # The task uses retries=0 by default; for custom retries, we'd need
     # to create task variants or use Huey's revoke/retry mechanism
-    result = run_pipeline_task(
-        config_path=config_path,
-        participant_id=participant_id,
-        session_id=session_id,
-        dicom_path=dicom_path,
-        pipeline_name=pipeline_name,
-        log_dir=log_dir,
-        force=force,
+    # Use delay=0 for immediate execution with priority
+    result = run_pipeline_task.schedule(
+        args=(
+            config_path,
+            participant_id,
+            session_id,
+            dicom_path,
+            pipeline_name,
+            log_dir,
+            force,
+        ),
+        delay=0,
+        priority=priority,
     )
 
     # Record as queued in state
@@ -295,6 +304,7 @@ def enqueue_pipeline(
         participant=participant_id,
         session=session_id,
         retries=retries,
+        priority=priority,
     )
 
     return task_id
@@ -365,55 +375,6 @@ def get_queue_details() -> list[dict]:
     """
     tasks = []
 
-    # Get pending tasks (ready to run)
-    for task in huey.pending():
-        try:
-            # Prefer extracting metadata from keyword arguments when available.
-            pipeline_name = None
-            participant_id = None
-            session_id = None
-
-            # Attempt to read from task.kwargs first (by name).
-            task_kwargs = getattr(task, "kwargs", None)
-            if isinstance(task_kwargs, dict):
-                pipeline_name = task_kwargs.get("pipeline_name")
-                participant_id = task_kwargs.get("participant_id")
-                session_id = task_kwargs.get("session_id")
-
-            # Fallback to positional args only if needed and available.
-            if (pipeline_name is None or participant_id is None or session_id is None):
-                task_args = getattr(task, "args", None)
-                if isinstance(task_args, (list, tuple)) and len(task_args) >= 5:
-                    # Args are: (config_path, participant_id, session_id, dicom_path,
-                    #            pipeline_name, log_dir, force)
-                    if participant_id is None:
-                        participant_id = task_args[1]
-                    if session_id is None:
-                        session_id = task_args[2]
-                    if pipeline_name is None:
-                        pipeline_name = task_args[4]
-
-            # Skip tasks that don't have the required metadata.
-            if pipeline_name is None or participant_id is None or session_id is None:
-                continue
-
-            tasks.append({
-                "task_id": task.id,
-                "pipeline_name": pipeline_name,
-                "participant_id": participant_id,
-                "session_id": session_id,
-                "status": "queued",
-            })
-        except AttributeError:
-            # Skip tasks that don't have expected structure
-            continue
-
-    # Get scheduled tasks (scheduled for future execution)
-    for task in huey.scheduled():
-        try:
-            pipeline_name = None
-            participant_id = None
-            session_id = None
     def extract_task_metadata(task, status: str) -> dict | None:
         """Extract common metadata from a Huey task.
 
