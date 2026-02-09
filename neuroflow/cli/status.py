@@ -258,7 +258,7 @@ def _show_pipelines(state: "SessionState", output_format: str, status_filter: st
                         on=key_cols,
                         how="left",
                     )
-                    df = df[~((df["_nf_in_queue"] == True) & df["status"].isin(["queued", "scheduled"]))]
+                    df = df[~(df["_nf_in_queue"] & df["status"].isin(["queued", "scheduled"]))]
                     df = df.drop(columns=["_nf_in_queue"])
                 df = pd.concat([queue_df, df], ignore_index=True)
             else:

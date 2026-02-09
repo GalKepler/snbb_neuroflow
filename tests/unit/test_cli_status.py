@@ -533,8 +533,8 @@ class TestStatusPipelinesPhase4:
             cli, ["--config", yaml_config, "status", "--pipelines"]
         )
         assert result.exit_code == 0
-        # Should show task ID (from queue) not duplicate
-        assert "abc12345" in result.output or "abc1234" in result.output  # First 8 chars
+        # Should show task ID (first 8 chars from queue) not duplicate
+        assert "abc1234" in result.output  # First 8 chars of task ID
         # Count occurrences - sub-001 should appear only once
         assert result.output.count("sub-001") == 1
 
