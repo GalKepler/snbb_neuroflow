@@ -733,3 +733,26 @@ class TestPriorityEnqueueing:
         call_kwargs = mock_task.schedule.call_args.kwargs
         assert call_kwargs["priority"] == -10
         assert task_id == "task-789"
+
+
+
+class TestTaskTimeout:
+    """Tests for task timeout configuration."""
+
+    def test_timeout_handler_raises_error(self):
+        """Test that timeout_handler raises TaskTimeoutError."""
+        from neuroflow.tasks import timeout_handler, TaskTimeoutError
+
+        with pytest.raises(TaskTimeoutError, match="Task exceeded timeout limit"):
+            timeout_handler(14, None)  # SIGALRM = 14
+
+    def test_timeout_error_class_exists(self):
+        """Test that TaskTimeoutError exception class exists."""
+        from neuroflow.tasks import TaskTimeoutError
+
+        # Verify it's an Exception subclass
+        assert issubclass(TaskTimeoutError, Exception)
+
+        # Verify it can be instantiated
+        error = TaskTimeoutError("test message")
+        assert str(error) == "test message"
