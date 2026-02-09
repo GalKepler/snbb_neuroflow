@@ -365,55 +365,6 @@ def get_queue_details() -> list[dict]:
     """
     tasks = []
 
-    # Get pending tasks (ready to run)
-    for task in huey.pending():
-        try:
-            # Prefer extracting metadata from keyword arguments when available.
-            pipeline_name = None
-            participant_id = None
-            session_id = None
-
-            # Attempt to read from task.kwargs first (by name).
-            task_kwargs = getattr(task, "kwargs", None)
-            if isinstance(task_kwargs, dict):
-                pipeline_name = task_kwargs.get("pipeline_name")
-                participant_id = task_kwargs.get("participant_id")
-                session_id = task_kwargs.get("session_id")
-
-            # Fallback to positional args only if needed and available.
-            if (pipeline_name is None or participant_id is None or session_id is None):
-                task_args = getattr(task, "args", None)
-                if isinstance(task_args, (list, tuple)) and len(task_args) >= 5:
-                    # Args are: (config_path, participant_id, session_id, dicom_path,
-                    #            pipeline_name, log_dir, force)
-                    if participant_id is None:
-                        participant_id = task_args[1]
-                    if session_id is None:
-                        session_id = task_args[2]
-                    if pipeline_name is None:
-                        pipeline_name = task_args[4]
-
-            # Skip tasks that don't have the required metadata.
-            if pipeline_name is None or participant_id is None or session_id is None:
-                continue
-
-            tasks.append({
-                "task_id": task.id,
-                "pipeline_name": pipeline_name,
-                "participant_id": participant_id,
-                "session_id": session_id,
-                "status": "queued",
-            })
-        except AttributeError:
-            # Skip tasks that don't have expected structure
-            continue
-
-    # Get scheduled tasks (scheduled for future execution)
-    for task in huey.scheduled():
-        try:
-            pipeline_name = None
-            participant_id = None
-            session_id = None
     def extract_task_metadata(task, status: str) -> dict | None:
         """Extract common metadata from a Huey task.
 
