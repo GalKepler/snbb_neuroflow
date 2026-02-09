@@ -18,7 +18,7 @@ console = Console()
 @click.option("--format", "output_format", default="table", type=click.Choice(["table", "csv", "json"]), help="Output format")
 @click.option("--filter", "status_filter", default="all", type=click.Choice(["all", "queued", "running", "completed", "failed"]), help="Filter by status (default: all)")
 @click.option("--watch", is_flag=True, help="Refresh display every 5 seconds (Ctrl+C to exit)")
-@click.option("--interval", default=5, type=int, help="Watch interval in seconds (default: 5)")
+@click.option("--interval", default=5, type=click.IntRange(min=1), help="Watch interval in seconds (default: 5)")
 @click.pass_context
 def status(
     ctx: click.Context,
